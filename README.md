@@ -48,7 +48,6 @@ You need a valid PC installation of Unreal Tournament / UT99 and must import you
 - Legacy storage behavior kept friendly for old sideload devices.
 
 > [!NOTE]
-> This is still a work-in-progress port.  
 > Expect occasional issues, especially on very old Android devices or unusual controller mappings.
 
 ---
@@ -59,7 +58,7 @@ You need a valid PC installation of Unreal Tournament / UT99 and must import you
 - Android 4.1 / API 16 or newer.
 - ARMv7 compatible device for the current build.
 - Android-compatible game controller recommended.
-- Original Unreal Tournament / UT99 PC game data v400.
+- Original Unreal Tournament / UT99 [PC game data v400](https://archive.org/download/ut-99_202512/UT99.iso).
 
 Required game data folders:
 
