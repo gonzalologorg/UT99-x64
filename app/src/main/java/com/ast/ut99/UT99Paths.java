@@ -412,6 +412,15 @@ final class UT99Paths {
         }
         ensureOpenGLESRegistry(system);
 
+        // UT99_ANDROID_V138_VISUAL_GAMEPLAY_DEFAULTS:
+        // Keep gameplay-visible transient effects enabled on Android/OUYA.
+        // Weapon.RenderOverlays() only draws first-person muzzle flash while
+        // Level.bHighDetailMode is true, and that flag follows the active
+        // renderer's HighDetailActors config.  Older generated AndroidUT99.ini
+        // files did not contain that key, so preserve user settings but append
+        // a final override once.
+        ensureAndroidVisualGameplayConfig(system);
+
         // UT99_ANDROID_V86_CONFIG_PRESERVE:
         // Do not rewrite AndroidUT99.ini / AndroidUser.ini after they already
         // exist.  Unreal's menus save user changes into these files; older
@@ -430,6 +439,32 @@ final class UT99Paths {
         }
         ensureAndroidLeanMenuConfig(system);
         return created;
+    }
+
+
+    private static void ensureAndroidVisualGameplayConfig(File systemDir) throws IOException {
+        if (systemDir == null) return;
+
+        String visualBlock = "\n\n; UT99_ANDROID_V138_VISUAL_GAMEPLAY_DEFAULTS\n" +
+                "[NOpenGLESDrv.NOpenGLESRenderDevice]\n" +
+                "HighDetailActors=True\n" +
+                "Coronas=True\n" +
+                "VolumetricLighting=True\n" +
+                "ShinySurfaces=True\n" +
+                "\n" +
+                "[NSDLDrv.NSDLClient]\n" +
+                "ScreenFlashes=True\n" +
+                "NoDynamicLights=False\n";
+
+        String[] names = {"AndroidUT99.ini", "Default.ini", "UnrealTournament.ini", "DCUtil.ini", "DefaultDCUtil.ini"};
+        for (String name : names) {
+            File ini = new File(systemDir, name);
+            if (!ini.isFile() || ini.length() == 0L) continue;
+            String text = readUtf8(ini);
+            if (text.indexOf("UT99_ANDROID_V138_VISUAL_GAMEPLAY_DEFAULTS") < 0) {
+                writeUtf8(ini, text + visualBlock);
+            }
+        }
     }
 
     private static void ensureAndroidLeanMenuConfig(File systemDir) throws IOException {
@@ -582,6 +617,8 @@ final class UT99Paths {
                 "\n" +
                 "[NSDLDrv.NSDLClient]\n" +
                 "DefaultDisplay=0\n" +
+                "ScreenFlashes=True\n" +
+                "NoDynamicLights=False\n" +
                 "StartupFullscreen=True\n" +
                 "UseJoystick=True\n" +
                 "DeadZoneXYZ=0.100000\n" +
@@ -592,6 +629,10 @@ final class UT99Paths {
                 "InvertV=False\n" +
                 "\n" +
                 "[NOpenGLESDrv.NOpenGLESRenderDevice]\n" +
+                "HighDetailActors=True\n" +
+                "Coronas=True\n" +
+                "VolumetricLighting=True\n" +
+                "ShinySurfaces=True\n" +
                 "NoFiltering=False\n" +
                 "Overbright=True\n" +
                 "DetailTextures=False\n" +
