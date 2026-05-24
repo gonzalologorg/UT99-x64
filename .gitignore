@@ -8,5 +8,5 @@ app/build/
 .cxx/
 .externalNativeBuild/
 third_party/SDL2/
-third_party/ut99dc/
+third_party/libxmp-4.7.0/
 third_party/*.zip

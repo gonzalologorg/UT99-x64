@@ -5,9 +5,13 @@ if(NOT ANDROID)
     message(FATAL_ERROR "This CMake entry point is intended for the Android NDK only.")
 endif()
 
-if(NOT ANDROID_ABI STREQUAL "armeabi-v7a")
-    message(FATAL_ERROR "UT99DC Android package is intentionally 32-bit only. Select armeabi-v7a, not ${ANDROID_ABI}.")
+# Force RelWithDebInfo if not specified, to ensure symbols are generated.
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING "" FORCE)
 endif()
+
+# Disable stripping for Android to keep symbols in the libraries.
+set(ANDROID_STRIP_DEBUG OFF)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -99,12 +103,21 @@ set(BUILD_STATIC ON CACHE BOOL "" FORCE)
 set(PLATFORM_DREAMCAST OFF CACHE BOOL "" FORCE)
 
 # Android-specific defines used by small compatibility shims and guarded patches.
-add_compile_definitions(
-        PLATFORM_ANDROID=1
-        ANDROID=1
-        PLATFORM_32BIT=1
-        PLATFORM_LITTLE_ENDIAN=1
-)
+if(ANDROID_ABI MATCHES "64")
+    add_compile_definitions(
+            PLATFORM_ANDROID=1
+            ANDROID=1
+            PLATFORM_64BIT=1
+            PLATFORM_LITTLE_ENDIAN=1
+    )
+else()
+    add_compile_definitions(
+            PLATFORM_ANDROID=1
+            ANDROID=1
+            PLATFORM_32BIT=1
+            PLATFORM_LITTLE_ENDIAN=1
+    )
+endif()
 
 # v21: UE1 was originally built with 4-byte struct packing on Win32 (/Zp4).
 # Android/Clang ARM uses different default alignment, which breaks reflected
@@ -115,6 +128,7 @@ add_compile_definitions(
 add_compile_options(
         -fpack-struct=4
         -Wno-address-of-packed-member
+        -g
 )
 
 add_subdirectory("${UT99DC_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/ut99dc")

@@ -723,6 +723,9 @@ public class MainActivity extends Activity {
         if (parent != null && !parent.exists() && !parent.mkdirs()) {
             throw new IOException("Cannot create " + parent.getAbsolutePath());
         }
+        if (out.exists() && !out.canWrite()) {
+            out.setWritable(true);
+        }
         FileInputStream input = new FileInputStream(source);
         try {
             FileOutputStream output = new FileOutputStream(out, false);
@@ -854,6 +857,9 @@ public class MainActivity extends Activity {
         if (parent != null && !parent.exists() && !parent.mkdirs()) {
             throw new IOException("Cannot create " + parent.getAbsolutePath());
         }
+        if (out.exists() && !out.canWrite()) {
+            out.setWritable(true);
+        }
         InputStream input = getContentResolver().openInputStream(source);
         if (input == null) throw new IOException("Cannot open " + source);
         try {
@@ -920,6 +926,9 @@ public class MainActivity extends Activity {
                 } else {
                     File parent = out.getParentFile();
                     if (parent != null && !parent.exists() && !parent.mkdirs()) throw new IOException("Cannot create " + parent.getAbsolutePath());
+                    if (out.exists() && !out.canWrite()) {
+                        out.setWritable(true);
+                    }
                     FileOutputStream fileOut = new FileOutputStream(out, false);
                     try {
                         stats.bytes += copy(zipInput, fileOut);

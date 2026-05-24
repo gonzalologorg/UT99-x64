@@ -184,6 +184,9 @@ final class UT99Paths {
         if (parent != null && !parent.exists() && !parent.mkdirs()) {
             throw new IOException("Cannot create " + parent.getAbsolutePath());
         }
+        if (target.exists() && !target.canWrite()) {
+            target.setWritable(true);
+        }
         java.io.FileInputStream in = new java.io.FileInputStream(source);
         try {
             java.io.FileOutputStream out = new java.io.FileOutputStream(target, false);
@@ -392,8 +395,13 @@ final class UT99Paths {
             in.close();
         }
 
-        if (target.exists() && !target.delete()) {
-            throw new IOException("Cannot replace old file: " + target.getAbsolutePath());
+        if (target.exists()) {
+            if (!target.canWrite()) {
+                target.setWritable(true);
+            }
+            if (!target.delete()) {
+                throw new IOException("Cannot replace old file: " + target.getAbsolutePath());
+            }
         }
         if (!tmp.renameTo(target)) {
             copySmallFile(tmp, target);
@@ -548,6 +556,9 @@ final class UT99Paths {
         File parent = file.getParentFile();
         if (parent != null && !parent.exists() && !parent.mkdirs()) {
             throw new IOException("Cannot create folder: " + parent.getAbsolutePath());
+        }
+        if (file.exists() && !file.canWrite()) {
+            file.setWritable(true);
         }
         FileOutputStream out = new FileOutputStream(file, false);
         try {
