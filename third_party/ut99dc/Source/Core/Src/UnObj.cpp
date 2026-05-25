@@ -3063,26 +3063,15 @@ UObject* UObject::StaticAllocateObject
 	check(!InClass || InClass->ClassConstructor);
 
 	// Validation checks.
-	if( !InClass )
-	{
-		Error->Logf( TEXT("Empty class for object %s"), *InName );
-		return NULL;
-	}
-	if( InClass->GetIndex()==INDEX_NONE && GObjRegisterCount==0 )
-	{
-		Error->Logf( TEXT("Unregistered class for %s"), *InName );
-		return NULL;
-	}
-	if( InClass->ClassFlags & CLASS_Abstract )
-	{
-		Error->Logf( LocalizeError("Abstract"), *InName, InClass->GetName() );
-		return NULL;
-	}
-	if( !InOuter && InClass!=UPackage::StaticClass() )
-	{
-		Error->Logf( LocalizeError("NotPackaged"), InClass->GetName(), *InName );
-		return NULL;
-	}
+	LOGI("offsetof(UObject, Outer)=%d", (int)offsetof(UObject, Outer));
+	LOGI("offsetof(UObject, Class)=%d", (int)offsetof(UObject, Class));
+	LOGI("offsetof(UField, Next)=%d", (int)offsetof(UField, Next));
+	LOGI("offsetof(UClass, ClassWithin)=%d", (int)offsetof(UClass, ClassWithin));
+
+	LOGI("alignof(UObject)=%d", (int)alignof(UObject));
+	LOGI("alignof(UClass)=%d", (int)alignof(UClass));
+	LOGI("alignof(UField)=%d", (int)alignof(UField));
+
 	if( InOuter && !InOuter->IsA(InClass->ClassWithin) )
 	{
 		Error->Logf( LocalizeError("NotWithin"), InClass->GetName(), *InName, InOuter->GetClass()->GetName(), InClass->ClassWithin->GetName() );
