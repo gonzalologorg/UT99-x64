@@ -619,11 +619,24 @@ CORE_API const char* appBaseDir()
 
 	if( !BaseDir[0] )
 	{
+		const char* AndroidBaseDir = getenv( "UT99_ANDROID_BASEDIR" );
+		if( AndroidBaseDir && AndroidBaseDir[0] )
+		{
+			appStrncpy( BaseDir, AndroidBaseDir, sizeof(BaseDir) );
+			BaseDir[sizeof(BaseDir)-1] = 0;
+		}
+
 		// Get directory this executable was launched from.
+		if( !BaseDir[0] )
+		{
 #if defined(PLATFORM_SDL)
-		char* BasePath = SDL_GetBasePath();
-		appStrncpy( BaseDir, BasePath, sizeof(BaseDir) );
-		SDL_free( BasePath );
+			char* BasePath = SDL_GetBasePath();
+			if( BasePath )
+			{
+				appStrncpy( BaseDir, BasePath, sizeof(BaseDir) );
+				BaseDir[sizeof(BaseDir)-1] = 0;
+				SDL_free( BasePath );
+			}
 #elif defined(PLATFORM_DREAMCAST)
 		// try PC/SD/HDD first, then CD
 		static const char* Paths[] =
@@ -645,9 +658,14 @@ CORE_API const char* appBaseDir()
 			}
 		}
 #endif
+		}
 		// Fallback to CWD.
 		if ( !BaseDir[0] )
 			strcpy( BaseDir, "./" );
+
+		INT Len = appStrlen( BaseDir );
+		if( Len > 0 && BaseDir[Len-1] != '/' && BaseDir[Len-1] != '\\' )
+			appStrcat( BaseDir, "/" );
 	}
 
 	return BaseDir;
@@ -711,6 +729,20 @@ void appPlatformInit()
 
 	// System initialization.
 	GSys = new USystem;
+	GSys->LoadConfig();
+	if( GSys->Paths.Num() == 0 )
+	{
+		debugf( NAME_Init, TEXT("Core.System Paths missing from config; installing Android defaults") );
+		new(GSys->Paths)FString( TEXT("../System/*.u") );
+		new(GSys->Paths)FString( TEXT("../Maps/*.unr") );
+		new(GSys->Paths)FString( TEXT("../Textures/*.utx") );
+		new(GSys->Paths)FString( TEXT("../Sounds/*.uax") );
+		new(GSys->Paths)FString( TEXT("../Music/*.umx") );
+		GSys->SavePath  = TEXT("../Save");
+		GSys->CachePath = TEXT("../Cache");
+		GSys->CacheExt  = TEXT(".uxx");
+	}
+	debugf( NAME_Init, TEXT("Core.System paths loaded: %i"), GSys->Paths.Num() );
 	GSys->AddToRoot();
 	for( INT i=0; i<GSys->Suppress.Num(); i++ )
 		GSys->Suppress(i).SetFlags( RF_Suppress );

@@ -13,6 +13,32 @@
 #define LOGI(...) ((void)__android_log_print(ANDROID_LOG_INFO, "Unreal", __VA_ARGS__))
 #define LOGE(...) ((void)__android_log_print(ANDROID_LOG_ERROR, "Unreal", __VA_ARGS__))
 
+static void ForceRegisterNativeClass( UClass* Class )
+{
+	if( Class && Class->GetIndex()==INDEX_NONE )
+	{
+		debugf( NAME_Init, TEXT("Force registering native class %s"), Class->GetName() );
+		Class->Register();
+	}
+}
+
+static void ForceRegisterCorePropertyClasses()
+{
+	ForceRegisterNativeClass( UProperty::StaticClass() );
+	ForceRegisterNativeClass( UByteProperty::StaticClass() );
+	ForceRegisterNativeClass( UIntProperty::StaticClass() );
+	ForceRegisterNativeClass( UBoolProperty::StaticClass() );
+	ForceRegisterNativeClass( UFloatProperty::StaticClass() );
+	ForceRegisterNativeClass( UObjectProperty::StaticClass() );
+	ForceRegisterNativeClass( UClassProperty::StaticClass() );
+	ForceRegisterNativeClass( UNameProperty::StaticClass() );
+	ForceRegisterNativeClass( UStrProperty::StaticClass() );
+	ForceRegisterNativeClass( UFixedArrayProperty::StaticClass() );
+	ForceRegisterNativeClass( UArrayProperty::StaticClass() );
+	ForceRegisterNativeClass( UMapProperty::StaticClass() );
+	ForceRegisterNativeClass( UStructProperty::StaticClass() );
+}
+
 /*-----------------------------------------------------------------------------
 	FOutputDevice implementation.
 -----------------------------------------------------------------------------*/
@@ -1465,6 +1491,7 @@ UBOOL appFindPackageFile( const TCHAR* In, const FGuid* Guid, TCHAR* Out )
 {
 	guard(appFindPackageFile);
 	TCHAR Temp[256];
+	LOGI("appFindPackageFile In=%s BaseDir=%s Paths=%d", In ? In : TEXT("NULL"), appBaseDir(), GSys ? GSys->Paths.Num() : -1);
 
 	// Don't return it if it's a library.
 	if( appStrlen(In)>appStrlen(DLLEXT) && appStricmp( In + appStrlen(In)-appStrlen(DLLEXT), DLLEXT )==0 )
@@ -1515,6 +1542,7 @@ UBOOL appFindPackageFile( const TCHAR* In, const FGuid* Guid, TCHAR* Out )
 
 				// Check for file.
 				UBOOL Found = 0;
+				LOGI("appFindPackageFile candidate=%s ext=%s", Out, Ext ? Ext : TEXT("NULL"));
 				Found = (GFileManager->FileSize(Out)>=0);
 				if( !Found && Ext )
 				{
@@ -1525,6 +1553,7 @@ UBOOL appFindPackageFile( const TCHAR* In, const FGuid* Guid, TCHAR* Out )
 						appStrcat( Out, TEXT("_") );
 					}
 					appStrcat( Out, Ext+1 );
+					LOGI("appFindPackageFile candidateExt=%s", Out);
 					Found = (GFileManager->FileSize( Out )>=0);
 				}
 				if( Found )
@@ -1791,7 +1820,35 @@ CORE_API void appInit( const TCHAR* InPackage, const TCHAR* InCmdLine, FMalloc* 
 	// Object initialization.
 	LOGE("Language is %s", UObject::GetLanguage() );
 
-    //UObject::ProcessRegistrants();
+	UObject::ProcessRegistrants();
+	ForceRegisterCorePropertyClasses();
+	{
+		UPackage* CorePackage = FindObject<UPackage>( NULL, TEXT("Core") );
+		UClass* ClassClass = FindObject<UClass>( CorePackage, TEXT("Class") );
+		UClass* FloatPropertyClass = FindObject<UClass>( CorePackage, TEXT("FloatProperty") );
+		UClass* AnyFloatPropertyClass = FindObject<UClass>( ANY_PACKAGE, TEXT("FloatProperty") );
+		debugf
+		(
+			NAME_Init,
+			TEXT("Native class check: Core=%p Class=%p Core.FloatProperty=%p Any.FloatProperty=%p"),
+			CorePackage,
+			ClassClass,
+			FloatPropertyClass,
+			AnyFloatPropertyClass
+		);
+		if( AnyFloatPropertyClass )
+		{
+			debugf
+			(
+				NAME_Init,
+				TEXT("Native FloatProperty detail: path=%s outer=%s flags=%08X index=%i"),
+				AnyFloatPropertyClass->GetPathName(),
+				AnyFloatPropertyClass->GetOuter() ? AnyFloatPropertyClass->GetOuter()->GetName() : TEXT("NULL"),
+				AnyFloatPropertyClass->GetFlags(),
+				AnyFloatPropertyClass->GetIndex()
+			);
+		}
+	}
 
 	// Memory initalization.
 	GMem.Init( 32768 );

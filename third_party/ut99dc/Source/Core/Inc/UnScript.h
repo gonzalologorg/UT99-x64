@@ -131,13 +131,13 @@ inline INT FFrame::ReadInt()
 }
 inline UObject* FFrame::ReadObject()
 {
-#ifdef PLATFORM_DREAMCAST
+#if defined(PLATFORM_DREAMCAST) || defined(__aarch64__)
 	UObject* Result;
 	__builtin_memcpy( &Result, Code, sizeof( Result ) );
 #else
 	UObject* Result = *(UObject**)Code;
 #endif
-	Code += sizeof(INT);
+	Code += sizeof(UObject*);
 	return Result;
 }
 inline FLOAT FFrame::ReadFloat()

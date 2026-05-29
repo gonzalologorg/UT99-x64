@@ -302,6 +302,8 @@ static void SerializeMips( UTexture* Texture, FArchive& Ar, TArray<FMipmap>& Mip
 		// Load array.
 		INT NewNum;
 		Ar << AR_INDEX(NewNum);
+		if( NewNum < 0 || NewNum > 32 )
+			appErrorf( TEXT("Invalid mip count %i while loading texture %s"), NewNum, Texture ? Texture->GetFullName() : TEXT("None") );
 		Mips.Empty( NewNum );
 		INT LOD = Min<INT>( UTexture::__Client ? UTexture::__Client->TextureLODSet[Texture->LODSet] : 0, NewNum-1 );
 		for( INT i=0; i<NewNum; i++ )
@@ -344,6 +346,15 @@ void UTexture::Serialize( FArchive& Ar )
 {
 	guard(UTexture::Serialize);
 	Super::Serialize( Ar );
+	if( Ar.IsLoading() )
+	{
+		// Mips/CompMips are declared to UnrealScript as native arrays for reflection,
+		// but their real C++ storage is TArray<FMipmap>. Tagged property loading can
+		// overwrite the native TArray header on 64-bit builds before the real mip
+		// payload is serialized below.
+		appMemzero( &Mips, sizeof(Mips) );
+		appMemzero( &CompMips, sizeof(CompMips) );
+	}
 
 	// Empty algorithmic textures.
 	if( (Ar.IsSaving() || Ar.IsLoading()) && bParametric )

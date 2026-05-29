@@ -339,13 +339,29 @@ void UObject::execDynArrayElement( FFrame& Stack, RESULT_DECL )
 }
 IMPLEMENT_FUNCTION( UObject, EX_DynArrayElement, execDynArrayElement );
 
+void UObject::execDynArrayLength( FFrame& Stack, RESULT_DECL )
+{
+	guardSlow(UObject::execDynArrayLength);
+
+	FArray* Array=NULL;
+	Stack.Step( this, *(BYTE**)&Array );
+	check(GProperty);
+	check(GProperty->IsA(UArrayProperty::StaticClass()));
+
+	if( Result )
+		*(INT*)Result = Array ? Array->Num() : 0;
+
+	unguardexecSlow;
+}
+IMPLEMENT_FUNCTION( UObject, EX_DynArrayLength, execDynArrayLength );
+
 void UObject::execBoolVariable( FFrame& Stack, RESULT_DECL )
 {
 	guardSlow(UObject::execBoolVariable);
 
 	// Get bool variable.
 	BYTE B = *Stack.Code++;
-#ifdef PLATFORM_DREAMCAST
+#if defined(PLATFORM_DREAMCAST) || defined(__aarch64__)
 	UBoolProperty* Property;
 	__builtin_memcpy( &Property, Stack.Code, sizeof( Property ) );
 #else

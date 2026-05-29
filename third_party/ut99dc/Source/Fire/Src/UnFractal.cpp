@@ -4061,17 +4061,33 @@ void UFireTexture::Clear( DWORD ClearFlags )
 void UFireTexture::PostLoad()
 {
 	guard(UFireTexture::PostLoad);
-	VERIFY_CLASS_SIZE(UFireTexture);
-	VERIFY_CLASS_SIZE(UWetTexture);
-	VERIFY_CLASS_SIZE(UWaveTexture);
-	VERIFY_CLASS_SIZE(UFractalTexture);
+	if( UFireTexture::StaticClass()->GetPropertiesSize() != (INT)sizeof(UFireTexture) )
+	{
+		debugf( NAME_Warning, TEXT("Adjusting UFireTexture properties size from %i to native size %i"), UFireTexture::StaticClass()->GetPropertiesSize(), sizeof(UFireTexture) );
+		UFireTexture::StaticClass()->SetPropertiesSize( sizeof(UFireTexture) );
+	}
+	if( UWetTexture::StaticClass()->GetPropertiesSize() != (INT)sizeof(UWetTexture) )
+	{
+		debugf( NAME_Warning, TEXT("Adjusting UWetTexture properties size from %i to native size %i"), UWetTexture::StaticClass()->GetPropertiesSize(), sizeof(UWetTexture) );
+		UWetTexture::StaticClass()->SetPropertiesSize( sizeof(UWetTexture) );
+	}
+	if( UWaveTexture::StaticClass()->GetPropertiesSize() != (INT)sizeof(UWaveTexture) )
+	{
+		debugf( NAME_Warning, TEXT("Adjusting UWaveTexture properties size from %i to native size %i"), UWaveTexture::StaticClass()->GetPropertiesSize(), sizeof(UWaveTexture) );
+		UWaveTexture::StaticClass()->SetPropertiesSize( sizeof(UWaveTexture) );
+	}
+	if( UFractalTexture::StaticClass()->GetPropertiesSize() != (INT)sizeof(UFractalTexture) )
+	{
+		debugf( NAME_Warning, TEXT("Adjusting UFractalTexture properties size from %i to native size %i"), UFractalTexture::StaticClass()->GetPropertiesSize(), sizeof(UFractalTexture) );
+		UFractalTexture::StaticClass()->SetPropertiesSize( sizeof(UFractalTexture) );
+	}
 
 	// Call base class.
 	Super::PostLoad();
 	PolyFlags &= ~PF_Masked;
 
 	// Make sure the texture has its _own_ copy of the palette.
-#if COPYPALETTE
+#if COPYPALETTE && !defined(PLATFORM_64BIT)
 	if( ( Palette!=NULL ) && ( GetOuter()!=Palette->GetOuter() ) )
 	{
 		UPalette* NewPalette = new( GetOuter(), GetName() )UPalette;
@@ -4231,6 +4247,13 @@ void UFireTexture::Serialize( FArchive& Ar )
 {
 	guard(UFireTexture::Serialize);
 	Super::Serialize( Ar );
+	if( Ar.IsLoading() )
+	{
+		// Sparks is a native TArray mirrored into UnrealScript; tagged property
+		// loading can overwrite the C++ array header on 64-bit before the real
+		// spark payload below is deserialized.
+		appMemzero( &Sparks, sizeof(Sparks) );
+	}
 
     // Clean up & minimize our spark array for saving to disk:
 	if( Ar.IsSaving() ) 

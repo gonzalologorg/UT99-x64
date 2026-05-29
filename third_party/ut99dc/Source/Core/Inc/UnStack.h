@@ -128,7 +128,7 @@ enum EExprToken
 	EX_StructCmpEq          = 0x32,	// Struct binary compare-for-equal.
 	EX_StructCmpNe          = 0x33,	// Struct binary compare-for-unequal.
 	EX_UnicodeStringConst   = 0x34, // Unicode string constant.
-	//
+	EX_DynArrayLength       = 0x35, // Dynamic array length.
 	EX_StructMember         = 0x36, // Struct member.
 	//
 	EX_GlobalFunction		= 0x38, // Call non-state version of a function.

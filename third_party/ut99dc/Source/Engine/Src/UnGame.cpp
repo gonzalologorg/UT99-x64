@@ -136,6 +136,7 @@ void UGameEngine::Init()
 {
 	guard(UGameEngine::Init);
 	check(sizeof(*this)==GetClass()->GetPropertiesSize());
+	debugf( NAME_Init, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE UGameEngine::Init begin GIsClient=%i"), GIsClient );
 
 	// Call base.
 	UEngine::Init();
@@ -153,11 +154,13 @@ void UGameEngine::Init()
 		UClass* ClientClass = StaticLoadClass( UClient::StaticClass(), NULL, TEXT("ini:Engine.Engine.ViewportManager"), NULL, LOAD_NoFail, NULL );
 		Client = ConstructObject<UClient>( ClientClass );
 		Client->Init( this );
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE client initialized class=%s"), ClientClass ? ClientClass->GetName() : TEXT("None") );
 
 		// Init rendering.
 		UClass* RenderClass = StaticLoadClass( URenderBase::StaticClass(), NULL, TEXT("ini:Engine.Engine.Render"), NULL, LOAD_NoFail, NULL );
 		Render = ConstructObject<URenderBase>( RenderClass );
 		Render->Init( this );
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE render initialized class=%s"), RenderClass ? RenderClass->GetName() : TEXT("None") );
 	}
 
 	// Load the entry level.
@@ -167,6 +170,7 @@ void UGameEngine::Init()
 		if( !LoadMap( FURL(TEXT("Entry")), NULL, NULL, Error ) )
 			appErrorf( LocalizeError("FailedBrowse"), TEXT("Entry"), *Error );
 		Exchange( GLevel, GEntry );
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE entry map loaded GEntry=%i"), GEntry != NULL );
 #ifdef PLATFORM_LOW_MEMORY
 		// Purge unused objects and flush caches.
 		Flush(1);
@@ -190,10 +194,14 @@ void UGameEngine::Init()
 	if( !URL.Valid )
 		appErrorf( LocalizeError("InvalidUrl"), Parm );
 	UBOOL Success = Browse( URL, NULL, Error );
+	debugf( NAME_Init, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE initial Browse success=%i url=%s error=%s"), Success, Parm, *Error );
 
 	// If waiting for a network connection, go into the starting level.
 	if( !Success && Error==TEXT("") && appStricmp( Parm, *FURL::DefaultLocalMap )!=0 )
+	{
 		Success = Browse( FURL(&DefaultURL,*FURL::DefaultLocalMap,TRAVEL_Partial), NULL, Error );
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE fallback Browse success=%i error=%s"), Success, *Error );
+	}
 
 	// Handle failure.
 	if( !Success )
@@ -207,22 +215,28 @@ void UGameEngine::Init()
 
 		// Create viewport.
 		UViewport* Viewport = Client->NewViewport( NAME_None );
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE NewViewport viewport=%i"), Viewport != NULL );
 
 		// Create console.
 		UClass* ConsoleClass = StaticLoadClass( UConsole::StaticClass(), NULL, TEXT("ini:Engine.Engine.Console"), NULL, LOAD_NoFail, NULL );
 		Viewport->Console = ConstructObject<UConsole>( ConsoleClass );
 		Viewport->Console->_Init( Viewport );
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE console initialized class=%s"), ConsoleClass ? ConsoleClass->GetName() : TEXT("None") );
 
 		// Spawn play actor.
 		FString Error;
 		if( !GLevel->SpawnPlayActor( Viewport, ROLE_SimulatedProxy, URL, Error ) )
 			appErrorf( TEXT("%s"), *Error );
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE play actor spawned Actor=%i"), Viewport->Actor != NULL );
 		Viewport->Input->Init( Viewport );
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE input initialized opening window") );
 		Viewport->OpenWindow( 0, 0, (INT) INDEX_NONE, (INT) INDEX_NONE, (INT) INDEX_NONE, (INT) INDEX_NONE );
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE OpenWindow returned Size=%ix%i RenDev=%i"), Viewport->SizeX, Viewport->SizeY, Viewport->RenDev != NULL );
 		GLevel->DetailChange( Viewport->RenDev->HighDetailActors );
 		InitAudio();
 		if( Audio )
 			Audio->SetViewport( Viewport );
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE initial viewport ready Audio=%i"), Audio != NULL );
 	}
 	debugf( NAME_Init, TEXT("Game engine initialized") );
 
@@ -1161,10 +1175,18 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* HitSize )
 {
 	guard(UGameEngine::Draw);
+	static INT DrawTraceCount = 0;
 
 	// If not up and running yet, don't draw.
 	if( !GIsRunning )
+	{
+		if( DrawTraceCount < 5 )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE Draw skipped GIsRunning=0 count=%i"), DrawTraceCount );
+			DrawTraceCount++;
+		}
 		return;
+	}
 	UpdateConnectingMessage();
 
 	// Get view location.
@@ -1217,6 +1239,8 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 	FlashFog.X   = Clamp( FlashFog.X  , 0.f, 1.f );
 	FlashFog.Y   = Clamp( FlashFog.Y  , 0.f, 1.f );
 	FlashFog.Z   = Clamp( FlashFog.Z  , 0.f, 1.f );
+	if( DrawTraceCount < 5 )
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE Draw begin count=%i Size=%ix%i Blit=%i LockFlags=0x%08X Actor=%s"), DrawTraceCount, Viewport->SizeX, Viewport->SizeY, Blit, LockFlags, ViewActor ? ViewActor->GetName() : TEXT("None") );
 	if( Viewport->Lock(FlashScale,FlashFog,FPlane(0,0,0,0),LockFlags,HitData,HitSize) )
 	{
 		// Setup rendering coords.
@@ -1297,7 +1321,15 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 		Render->PostRender( Frame );
 		Viewport->Unlock( Blit );
 		Render->FinishMasterFrame();
+		if( DrawTraceCount < 5 )
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE Draw finished count=%i"), DrawTraceCount );
 	}
+	else if( DrawTraceCount < 5 )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE Draw lock failed count=%i"), DrawTraceCount );
+	}
+	if( DrawTraceCount < 5 )
+		DrawTraceCount++;
 	ViewActor->Level->LevelAction = SavedAction;
 
 	// Precache now if desired.

@@ -375,7 +375,7 @@ UBOOL UObject::ConditionalDestroy()
 void UObject::ConditionalRegister()
 {
 	guard(UObject::ConditionalRegister);
-	if (!GObjInitialized || !GIsRunning)
+	if (!GObjInitialized)
         return;
 
 	if( GetIndex()==INDEX_NONE )
@@ -1103,8 +1103,6 @@ UObject* UObject::GetIndexedObject( INT Index )
 UObject* UObject::StaticFindObject( UClass* ObjectClass, UObject* InObjectPackage, const TCHAR* InName, UBOOL ExactClass )
 {
 	guard(UObject::StaticFindObject);
-	LOGI("StaticFindObject searching %s",
-    	InName);
 	// Resolve the object and package name.
 	UObject* ObjectPackage = InObjectPackage!=ANY_PACKAGE ? InObjectPackage : NULL;
 	if( !ResolveName( ObjectPackage, InName, 0, 0 ) )
@@ -1271,11 +1269,6 @@ void UObject::GlobalSetProperty( const TCHAR* Value, UClass* Class, UProperty* P
 //
 void UObject::Register()
 {
-	
-	LOGI("BootstrapName=%s", BootstrapName ? BootstrapName : "NULL");
-	LOGI("BootstrapPackage=%s", BootstrapPackage ? BootstrapPackage : "NULL");
-	LOGI("Current Name Index=%d", Name.GetIndex());
-
     guard(UObject::Register);
 
     check(GObjInitialized);
@@ -1307,8 +1300,6 @@ void UObject::Register()
     // Add to object table.
     //
     AddObject(INDEX_NONE);
-	LOGI("AFTER Name Index=%d", Name.GetIndex());
-	LOGI("AFTER Name=%s", *Name);
 
     unguard;
 }
@@ -1346,19 +1337,19 @@ void SerTest( FArchive& Ar, DWORD& Value, DWORD Max )
 void UObject::StaticInit()
 {
 
-	if( appStricmp(BootstrapName, "Class") == 0 ) {
-		LOGI("=== CLASS DEBUG ===");
-		LOGI("this=%p", this);
-		LOGI("Name=%s", GetName());
-		LOGI("Class=%p", Class);
-		if(Class) {
-			LOGI("Class->GetName=%s", Class->GetName());
-		}
-		LOGI("Outer=%p", Outer);
-		if(Outer) {
-			LOGI("Outer=%s", Outer->GetName());
-		}
-	}
+	// if( appStricmp(BootstrapName, "Class") == 0 ) {
+	// 	LOGI("=== CLASS DEBUG ===");
+	// 	LOGI("this=%p", this);
+	// 	LOGI("Name=%s", GetName());
+	// 	LOGI("Class=%p", Class);
+	// 	if(Class) {
+	// 		LOGI("Class->GetName=%s", Class->GetName());
+	// 	}
+	// 	LOGI("Outer=%p", Outer);
+	// 	if(Outer) {
+	// 		LOGI("Outer=%s", Outer->GetName());
+	// 	}
+	// }
 
 	guard(UObject::StaticInit);
 	GObjNoRegister = 1;
@@ -1417,21 +1408,33 @@ void UObject::ProcessRegistrants()
 {
 	guard(UObject::ProcessRegistrants);
 
+	if( GIsRegistering )
+		return;
+
     GIsRegistering = 1;
 
-    LOGI("Processing %d registrants", GPendingRegistrants.Num());
+	while( GPendingRegistrants.Num() )
+	{
+		TArray<UObject*> Registrants = GPendingRegistrants;
+		GPendingRegistrants.Empty();
+		GObjRegistrants = Registrants;
 
-    for( INT i=0; i<GPendingRegistrants.Num(); i++ )
-    {
-        UObject* Obj = GPendingRegistrants(i);
+		LOGI("Processing %d registrants", Registrants.Num());
 
-        if (!Obj)
-            continue;
+		for( INT i=0; i<Registrants.Num(); i++ )
+		{
+			UObject* Obj = Registrants(i);
 
-        Obj->Register();
-    }
+			if( !Obj )
+				continue;
+			if( Obj->GetIndex()!=INDEX_NONE )
+				continue;
 
-    GPendingRegistrants.Empty();
+			Obj->Register();
+		}
+
+		GObjRegistrants.Empty();
+	}
 
     GIsRegistering = 0;
 
@@ -1634,7 +1637,6 @@ private:
 	FArchive& operator<<( UObject*& Obj )
 	{
 		guard(FArchiveShowReferences<<Obj);
-		LOGI("[SER] UObject ptr=%p", Obj);
 		if( Obj && Obj->GetOuter()!=Parent )
 		{
 			INT i;
@@ -1649,7 +1651,6 @@ private:
 				DidRef=1;
 			}
 		}
-		LOGI("[SER] Post UObject ptr=%p", Obj);
 		return *this;
 		unguard;
 	}
@@ -2294,14 +2295,6 @@ UObject* UObject::StaticLoadObject( UClass* ObjectClass, UObject* InOuter, const
 	check(ObjectClass);
 	check(InName);
 
-	LOGI("GObjPackageRemap=%p", GObjPackageRemap);
-	LOGI("ObjectClass=%p", ObjectClass);
-	if (ObjectClass)
-	{
-		LOGI("ObjectClass raw name index=%d",
-			*(INT*)((BYTE*)ObjectClass + offsetof(UObject, Name)));
-	}
-
 	// Try to load.
 	UObject* Result=NULL;
 	BeginLoad();
@@ -2562,7 +2555,6 @@ public:
 	FArchive& operator<<( UObject*& Obj )
 	{
 		guard(FArchiveSaveTagExports<<Obj);
-		LOGI("[SER] UObject ptr=%p", Obj);
 		if( Obj && Obj->IsIn(Parent) && !(Obj->GetFlags() & (RF_Transient|RF_TagExp)) )//&& !Obj->IsPendingKill() )
 		{
 			// Set flags.
@@ -2579,8 +2571,6 @@ public:
 			// Recurse with this object's children.
 			Obj->Serialize( *this );
 		}
-		LOGI("[SER] Post UObject ptr=%p", Obj);
-
 		return *this;
 		unguard;
 	}
@@ -2620,7 +2610,6 @@ public:
 	FArchive& operator<<( UObject*& Obj )
 	{
 		guard(FArchiveSaveTagImports<<Obj);
-		LOGI("[SER] UObject ptr=%p", Obj);
 
 		if( Obj && !Obj->IsPendingKill() )
 		{
@@ -2639,9 +2628,6 @@ public:
 				}
 			}
 		}
-
-		LOGI("[SER] Post UObject ptr=%p", Obj);
-
 		return *this;
 		unguard;
 	}
@@ -3418,7 +3404,6 @@ private:
 	FArchive& operator<<( UObject*& Obj )
 	{
 		guardSlow(FArchiveTagUsed<<Obj);
-		LOGI("[SER] UObject ptr=%p", Obj);
 
 		GGarbageRefCount++;
 
@@ -3457,8 +3442,6 @@ private:
 			}
 			unguardf(( TEXT("(%s)"), Obj->GetFullName() ));
 		}
-		LOGI("[SER] Post UObject ptr=%p", Obj);
-
 		return *this;
 		unguardSlow;
 	}

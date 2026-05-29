@@ -135,8 +135,8 @@ public class MainActivity extends Activity {
         android.util.Log.w("UT99Installer", "data check failed root=" + selectedRoot.getAbsolutePath());
         if (UT99Paths.hasUsableGameData(selectedRoot)) {
             lastImportMessage = t(
-                    "Spieldaten sind teilweise vorhanden, aber Core.u, Engine.u, Botpack.u oder Maps/CityIntro.unr fehlen bzw. haben eine unpassende Groß-/Kleinschreibung.",
-                    "Game data is partially present, but Core.u, Engine.u, Botpack.u or Maps/CityIntro.unr are missing or have incompatible letter casing.");
+                    "Spieldaten sind teilweise vorhanden, aber Core.u, Engine.u, Botpack.u, Maps/Entry.unr oder Maps/CityIntro.unr fehlen bzw. haben eine unpassende Groß-/Kleinschreibung.",
+                    "Game data is partially present, but Core.u, Engine.u, Botpack.u, Maps/Entry.unr or Maps/CityIntro.unr are missing or have incompatible letter casing.");
         }
         showMissingDataScreen();
     }
@@ -159,8 +159,8 @@ public class MainActivity extends Activity {
             android.util.Log.e("UT99Installer", "launch refused, required launch files missing root=" + verifiedRoot.getAbsolutePath());
             launchInProgress = false;
             lastImportMessage = t(
-                    "Installierte Daten gefunden, aber für den Start fehlen Core.u, Engine.u, Botpack.u oder Maps/CityIntro.unr.",
-                    "Installed data found, but Core.u, Engine.u, Botpack.u or Maps/CityIntro.unr are missing for launch.");
+                    "Installierte Daten gefunden, aber für den Start fehlen Core.u, Engine.u, Botpack.u, Maps/Entry.unr oder Maps/CityIntro.unr.",
+                    "Installed data found, but Core.u, Engine.u, Botpack.u, Maps/Entry.unr or Maps/CityIntro.unr are missing for launch.");
             showMissingDataScreen();
             return;
         }

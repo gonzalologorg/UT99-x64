@@ -34,7 +34,10 @@
             android:name=".MainActivity"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|touchscreen|uiMode"
             android:exported="true"
+            android:immersive="true"
             android:launchMode="singleTop"
+            android:maxAspectRatio="10.0"
+            android:resizeableActivity="false"
             android:screenOrientation="landscape">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -50,8 +53,11 @@
             android:exported="false"
             android:finishOnTaskLaunch="true"
             android:hardwareAccelerated="false"
+            android:immersive="true"
             android:launchMode="standard"
+            android:maxAspectRatio="10.0"
             android:process=":game"
+            android:resizeableActivity="false"
             android:screenOrientation="landscape" />
 
     </application>

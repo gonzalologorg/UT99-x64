@@ -285,6 +285,7 @@ void UNSDLViewport::OpenWindow( DWORD InParentWindow, UBOOL Temporary, INT NewX,
 	}
 	NewX = Align(NewX,4);
 	debugf( NAME_Log, TEXT("OpenWindow: NewX=%d, NewY=%d"), NewX, NewY );
+	debugf( NAME_Log, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE OpenWindow begin temporary=%i parent=%i requested=%ix%i nohard=%i"), Temporary, InParentWindow != 0, NewX, NewY, NoHard );
 
 	if( !Temporary && !GIsEditor && !NoHard )
 	{
@@ -343,6 +344,7 @@ void UNSDLViewport::OpenWindow( DWORD InParentWindow, UBOOL Temporary, INT NewX,
 		{
 			Flags |= SDL_WINDOW_OPENGL;
 		}
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE OpenWindow flags=0x%08X doOpenGL=%i"), Flags, DoOpenGL );
 
 		// Set OpenGL attributes if needed.
 		if( DoOpenGL )
@@ -385,6 +387,7 @@ void UNSDLViewport::OpenWindow( DWORD InParentWindow, UBOOL Temporary, INT NewX,
 			{
 				appErrorf( "Could not create SDL window: %s", SDL_GetError() );
 			}
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE SDL_CreateWindow ok hWnd=%i"), hWnd != NULL );
 
 			// Set parent window.
 			if( InParentWindow && (Actor->ShowFlags & SHOW_ChildWindow) )
@@ -413,6 +416,7 @@ void UNSDLViewport::OpenWindow( DWORD InParentWindow, UBOOL Temporary, INT NewX,
 				}
 			}
 			SDL_GL_MakeCurrent( hWnd, GLCtx );
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE GL context ready GLCtx=%i"), GLCtx != NULL );
 		}
 		else
 		{
@@ -428,6 +432,7 @@ void UNSDLViewport::OpenWindow( DWORD InParentWindow, UBOOL Temporary, INT NewX,
 					appErrorf( "Could not create SDL renderer: %s", SDL_GetError() );
 				}
 			}
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE SDL renderer ready renderer=%i softwareFallback=%i"), SDLRen != NULL, SDLRen != NULL );
 			// Create framebuffer texture.
 			SDLTexFormat = SDL_PIXELFORMAT_ARGB8888;
 			ColorBytes = SDL_BYTESPERPIXEL( SDLTexFormat );
@@ -437,9 +442,11 @@ void UNSDLViewport::OpenWindow( DWORD InParentWindow, UBOOL Temporary, INT NewX,
 			{
 				appErrorf( "Could not create framebuffer texture: %s", SDL_GetError() );
 			}
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE SDL texture ready texture=%i colorBytes=%i caps=0x%08X"), SDLTex != NULL, ColorBytes, Caps );
 		}
 
 		SDL_ShowWindow( hWnd );
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE SDL_ShowWindow done") );
 
 		// Get this window's display parameters.
 		SDL_DisplayMode DisplayMode;
@@ -461,11 +468,15 @@ void UNSDLViewport::OpenWindow( DWORD InParentWindow, UBOOL Temporary, INT NewX,
 	if( !RenDev )
 		Client->TryRenderDevice( this, "ini:Engine.Engine.WindowedRenderDevice", 0 );
 	check(RenDev);
+	debugf( NAME_Log, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE render device ready RenDev=%s Size=%ix%i ColorBytes=%i"), RenDev ? RenDev->GetClass()->GetName() : TEXT("None"), SizeX, SizeY, ColorBytes );
 
 	if( !Temporary )
 		UpdateWindowFrame();
 	if( DoRepaint )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE first Repaint requested") );
 		Repaint( 1 );
+	}
 
 	unguard;
 }
@@ -512,6 +523,7 @@ void UNSDLViewport::CloseWindow()
 UBOOL UNSDLViewport::Lock( FPlane FlashScale, FPlane FlashFog, FPlane ScreenClear, DWORD RenderLockFlags, BYTE* HitData, INT* HitSize )
 {
 	guard(UNSDLViewport::LockWindow);
+	static INT LockTraceCount = 0;
 	clock(Client->DrawCycles);
 
 	// Make sure window is lockable.
@@ -534,6 +546,11 @@ UBOOL UNSDLViewport::Lock( FPlane FlashScale, FPlane FlashFog, FPlane ScreenClea
 		SDL_LockTexture( SDLTex, NULL, (void **)&ScreenPointer, &Stride );
 		Stride /= ColorBytes;
 		check(ScreenPointer);
+	}
+	if( LockTraceCount < 5 )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE Lock ok count=%i Size=%ix%i GLCtx=%i SDLRen=%i SDLTex=%i ColorBytes=%i"), LockTraceCount, SizeX, SizeY, GLCtx != NULL, SDLRen != NULL, SDLTex != NULL, ColorBytes );
+		LockTraceCount++;
 	}
 
 	// Success.
@@ -620,6 +637,7 @@ UBOOL UNSDLViewport::ResizeViewport( DWORD NewBlitFlags, INT InNewX, INT InNewY,
 void UNSDLViewport::Unlock( UBOOL Blit )
 {
 	guard(UNSDLViewport::Unlock);
+	static INT UnlockTraceCount = 0;
 
 	Client->DrawCycles=0;
 	clock(Client->DrawCycles);
@@ -634,6 +652,8 @@ void UNSDLViewport::Unlock( UBOOL Blit )
 		{
 
 			SDL_GL_SwapWindow( hWnd );
+			if( UnlockTraceCount < 5 )
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE Unlock presented GL count=%i"), UnlockTraceCount );
 		}
 		else if( SDLRen && SDLTex )
 		{
@@ -641,8 +661,20 @@ void UNSDLViewport::Unlock( UBOOL Blit )
 			SDL_UnlockTexture( SDLTex );
 			SDL_RenderCopy( SDLRen, SDLTex, NULL, NULL );
 			SDL_RenderPresent( SDLRen );
+			if( UnlockTraceCount < 5 )
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE Unlock presented SDL count=%i"), UnlockTraceCount );
+		}
+		else if( UnlockTraceCount < 5 )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE Unlock skipped present missing backend GLCtx=%i SDLRen=%i SDLTex=%i"), GLCtx != NULL, SDLRen != NULL, SDLTex != NULL );
 		}
 	}
+	else if( UnlockTraceCount < 5 )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE Unlock skipped Blit=%i hWnd=%i HoldCount=%i"), Blit, hWnd != NULL, HoldCount );
+	}
+	if( UnlockTraceCount < 5 )
+		UnlockTraceCount++;
 
 	unclock(Client->DrawCycles);
 

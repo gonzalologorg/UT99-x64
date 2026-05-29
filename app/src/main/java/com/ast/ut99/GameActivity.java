@@ -21,6 +21,13 @@ import java.io.File;
  */
 public class GameActivity extends SDLActivity {
     private static final String TAG = "UT99Android";
+    private static final int UT99_VR_SYSTEM_UI_FLAGS =
+            View.SYSTEM_UI_FLAG_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                    | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                    | View.SYSTEM_UI_FLAG_LAYOUT_STABLE;
 
     // UT99_ANDROID_V73_RESOLUTION_SCALE_RESTORED:
     // Preferences > Video > Resolution can request Native, 75% native Res. or 50% native Res.
@@ -142,6 +149,17 @@ public class GameActivity extends SDLActivity {
         boolean androidIniCreatedV86 = false;
         try {
             UT99Paths.normalizeInstalledDataRoot(dataRoot);
+            if (!UT99Paths.hasLaunchableGameData(dataRoot)) {
+                Log.e(TAG, "Launch refused, required UT99 files missing below " + dataRoot.getAbsolutePath());
+                Toast.makeText(this, "UT99 data is missing Maps/Entry.unr or other required launch files", Toast.LENGTH_LONG).show();
+                try {
+                    super.onCreate(savedInstanceState);
+                } catch (Throwable superError) {
+                    Log.e(TAG, "SDLActivity fallback onCreate after data validation failure also failed", superError);
+                }
+                finish();
+                return;
+            }
             UT99Paths.rememberDataRoot(this, dataRoot);
             UT99Paths.ensureBundledSystemPatches(this, dataRoot);
             androidIniCreatedV86 = UT99Paths.ensureAndroidIni(dataRoot);
@@ -293,35 +311,65 @@ public class GameActivity extends SDLActivity {
      * Android fullscreen/immersive mode for the SDL surface.
      */
     private void applyUt99ImmersiveMode() {
-        // UT99_ANDROID_IMMERSIVE_V28
+        // UT99_ANDROID_V140_VR_FULLSCREEN
         try {
             setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
         } catch (Throwable ignored) {
         }
 
-        Window window = getWindow();
+        ut99V140ApplyVrFullscreen(getWindow(), true);
+    }
+
+    private void ut99V140ApplyVrFullscreen(Window window, boolean hideIme) {
         if (window == null) {
             return;
         }
 
         window.setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
                 WindowManager.LayoutParams.FLAG_FULLSCREEN);
-        window.setFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
-                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS);
+        window.clearFlags(WindowManager.LayoutParams.FLAG_FORCE_NOT_FULLSCREEN);
         // UT99_ANDROID_V76_KEYBOARD_START_SAFE:
         // Keep the IME hidden during normal engine/game startup. Native UWindow
         // edit-field handling explicitly requests it when text input is wanted.
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING | WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
 
+        if (android.os.Build.VERSION.SDK_INT >= 21) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+            window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS
+                    | WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION);
+            window.setStatusBarColor(android.graphics.Color.TRANSPARENT);
+            window.setNavigationBarColor(android.graphics.Color.TRANSPARENT);
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            WindowManager.LayoutParams lp = window.getAttributes();
+            lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            window.setAttributes(lp);
+        }
+
         View decor = window.getDecorView();
         if (decor != null) {
-            decor.setSystemUiVisibility(
-                    View.SYSTEM_UI_FLAG_FULLSCREEN
-                            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                            | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+            decor.setFitsSystemWindows(false);
+            decor.setSystemUiVisibility(UT99_VR_SYSTEM_UI_FLAGS);
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                try {
+                    window.setDecorFitsSystemWindows(false);
+                    android.view.WindowInsetsController controller = decor.getWindowInsetsController();
+                    if (controller != null) {
+                        controller.hide(android.view.WindowInsets.Type.statusBars()
+                                | android.view.WindowInsets.Type.navigationBars());
+                        controller.setSystemBarsBehavior(
+                                android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+
+        if (hideIme) {
+            ut99V76HideImeUnlessRequested();
         }
     }
 
@@ -369,6 +417,21 @@ public class GameActivity extends SDLActivity {
             applyUt99ImmersiveMode();
             ut99V76HideImeUnlessRequested();
         }
+    }
+
+    @Override
+    public void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        applyUt99ImmersiveMode();
+        ut99V52ScheduleImmersive();
+    }
+
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        applyUt99ImmersiveMode();
+        ut99V55ScheduleFixedSurface();
+        ut99V52ScheduleImmersive();
     }
 
     /**
@@ -1040,18 +1103,7 @@ public class GameActivity extends SDLActivity {
     // UT99_ANDROID_V50_IMMERSIVE
     private void ut99V50Immersive() {
         try {
-            getWindow().setFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN,
-                    android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN);
-            android.view.View decor = getWindow().getDecorView();
-            int flags = android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
-                    | android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                    | android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                    | android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                    | android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE;
-            if (android.os.Build.VERSION.SDK_INT >= 19) {
-                flags |= android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
-            }
-            decor.setSystemUiVisibility(flags);
+            ut99V140ApplyVrFullscreen(getWindow(), false);
             // UT99_ANDROID_V72_UI_EDIT_FOCUS_KEYBOARD:
             // Do not hide the IME from immersive re-apply. SDL_StopTextInput()
             // is now responsible for closing it when the user taps outside an
@@ -1093,34 +1145,7 @@ public class GameActivity extends SDLActivity {
     private void ut99V52HardImmersive() {
         try {
             final android.view.Window w = getWindow();
-            w.setFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN,
-                    android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN);
-            w.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-            if (android.os.Build.VERSION.SDK_INT >= 28) {
-                android.view.WindowManager.LayoutParams lp = w.getAttributes();
-                lp.layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
-                w.setAttributes(lp);
-            }
-
-            final android.view.View decor = w.getDecorView();
-            int flags = android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
-                    | android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                    | android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                    | android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                    | android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                    | android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE;
-            decor.setSystemUiVisibility(flags);
-
-            if (android.os.Build.VERSION.SDK_INT >= 30) {
-                try {
-                    w.setDecorFitsSystemWindows(false);
-                    android.view.WindowInsetsController c = decor.getWindowInsetsController();
-                    if (c != null) {
-                        c.hide(android.view.WindowInsets.Type.statusBars() | android.view.WindowInsets.Type.navigationBars());
-                        c.setSystemBarsBehavior(android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-                    }
-                } catch (Throwable ignored) {}
-            }
+            ut99V140ApplyVrFullscreen(w, true);
 
             // UT99_ANDROID_V76_KEYBOARD_START_SAFE:
             // Keep the soft keyboard alive only while native UWindow edit handling requested it.
@@ -1137,7 +1162,7 @@ public class GameActivity extends SDLActivity {
             ut99V52Handler = new android.os.Handler(android.os.Looper.getMainLooper());
         }
         ut99V52HardImmersive();
-        final int[] delays = new int[]{50, 150, 350, 750, 1500, 3000};
+        final int[] delays = new int[]{50, 150, 350, 750, 1500, 3000, 5000};
         for (int d : delays) {
             ut99V52Handler.postDelayed(new Runnable() {
                 @Override public void run() { ut99V52HardImmersive(); }

@@ -762,7 +762,20 @@ class ULinkerLoad : public ULinker, public FArchive
 
 				// Make sure we serialized the right amount of stuff.
 				if( Tell()-Export.SerialOffset != Export.SerialSize )
+				{
+					debugf
+					(
+						NAME_Critical,
+						TEXT("Preload serial mismatch object=%s linker=%s offset=%i tell=%i read=%i expected=%i"),
+						Object->GetFullName(),
+						*Filename,
+						Export.SerialOffset,
+						Tell(),
+						Tell()-Export.SerialOffset,
+						Export.SerialSize
+					);
 					appErrorf( LocalizeError("SerialSize"), Object->GetFullName(), Tell()-Export.SerialOffset, Export.SerialSize );
+				}
 				Loader->Seek( SavedPos );
 				unguardf(( TEXT("(%s %i==%i/%i %i %i)"), Object->GetFullName(), Loader->Tell(), Loader->Tell(), Loader->TotalSize(), ExportMap( Object->_LinkerIndex ).SerialOffset, ExportMap( Object->_LinkerIndex ).SerialSize ));
 			}
@@ -780,7 +793,6 @@ private:
 	UObject* CreateExport( INT Index )
 	{
 		guard(ULinkerLoad::CreateExport);
-        LOGI("=== START %d ===", Index);
 
 		// Map the object into our table.
 		FObjectExport& Export = ExportMap( Index );
@@ -839,23 +851,8 @@ private:
 	// Return the loaded object corresponding to an import index; any errors are fatal.
 	UObject* CreateImport( INT Index )
 	{
-		LOGI("=== START %d ===", Index);
-
 		guard(ULinkerLoad::CreateImport);
 		FObjectImport& Import = ImportMap( Index );
-
-		LOGI("=== CreateImport %d ===", Index);
-
-		LOGI("ClassPackage=%s", *Import.ClassPackage);
-		LOGI("ClassName=%s", *Import.ClassName);
-		LOGI("ObjectName=%s", *Import.ObjectName);
-
-		//LOGI("OuterIndex=%d", Import.OuterIndex);
-		LOGI("SourceLinker=%p", Import.SourceLinker);
-		LOGI("XObject=%p", Import.XObject);
-
-		LOGI("sizeof(FObjectImport)=%d", sizeof(FObjectImport));
-		LOGI("sizeof(FObjectExport)=%d", sizeof(FObjectExport));
 	
 		if( !Import.XObject && Import.SourceIndex>=0 )
 		{
@@ -1004,12 +1001,9 @@ private:
 	FArchive& operator<<( UObject*& Object )
 	{
 		guard(ULinkerLoad<<UObject);
-		LOGI("[SER] UObject ptr=%p", Object);
 		INT Index;
 		*Loader << AR_INDEX(Index);
 		Object = IndexToObject( Index );
-
-		LOGI("[SER] Post UObject ptr=%p", Object);
 
 		return *this;
 		unguardf(( TEXT("(%s %i))"), GetFullName(), Tell() ));
@@ -1111,9 +1105,7 @@ class ULinkerSave : public ULinker, public FArchive
 	FArchive& operator<<( UObject*& Obj )
 	{
 		guardSlow(ULinkerSave<<UObject);
-		LOGI("[SER] UObject ptr=%p", Obj);
 		INT Save = Obj ? ObjectIndices(Obj->GetIndex()) : 0;
-		LOGI("[SER] Post UObject ptr=%p", Obj);
 		return *this << AR_INDEX(Save);
 		unguardobjSlow;
 	}

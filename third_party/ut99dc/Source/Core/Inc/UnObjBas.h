@@ -602,6 +602,7 @@ public:
 	DECLARE_FUNCTION(execDefaultVariable)
 	DECLARE_FUNCTION(execArrayElement)
 	DECLARE_FUNCTION(execDynArrayElement)
+	DECLARE_FUNCTION(execDynArrayLength)
 	DECLARE_FUNCTION(execBoolVariable)
 	DECLARE_FUNCTION(execClassDefaultVariable)
 	DECLARE_FUNCTION(execEndFunctionParms)

@@ -13,6 +13,51 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "UT99", __VA_ARGS__)
 #define VF_HASH_VARIABLES 0 /* Undecided!! */
 
+static INT* GScriptCompatCodeOffset = NULL;
+static INT* GScriptCompatCodeLimit = NULL;
+static TArray<INT>* GScriptCompatToNative = NULL;
+static INT GScriptSerializeExprDepth = 0;
+static UBOOL GScriptTraceExpr = 0;
+
+template<class T> static inline INT ScriptCompatSize( T* )
+{
+	return sizeof(T);
+}
+
+template<class T> static inline INT ScriptCompatSize( T** )
+{
+	return 4;
+}
+
+static inline void NoteScriptCompatOffset( INT CompatOffset, INT NativeOffset )
+{
+	if( GScriptCompatToNative && CompatOffset>=0 && CompatOffset<GScriptCompatToNative->Num() && (*GScriptCompatToNative)(CompatOffset)==INDEX_NONE )
+		(*GScriptCompatToNative)(CompatOffset) = NativeOffset;
+}
+
+#define XFER_SCRIPT_OBJECT(TObject) \
+	{ \
+		INT CompatBytes = 4; \
+		if( Ar.IsLoading() && GScriptCompatCodeOffset && GScriptCompatCodeLimit && *GScriptCompatCodeOffset+CompatBytes>*GScriptCompatCodeLimit ) \
+			appErrorf(TEXT("SerializeExpr read past script object=%s nativeCode=%i compatCode=%i read=%i limit=%i scriptBytes=%i"), GetFullName(), iCode, *GScriptCompatCodeOffset, CompatBytes, *GScriptCompatCodeLimit, Script.Num()); \
+		TObject* Obj = NULL; \
+		if( !Ar.IsLoading() && iCode+(INT)sizeof(Obj)<=Script.Num() ) \
+			appMemcpy( &Obj, &Script(iCode), sizeof(Obj) ); \
+		UObject* BaseObj = Obj; \
+		Ar << BaseObj; \
+		Obj = (TObject*)BaseObj; \
+		if( Ar.IsLoading() && iCode+(INT)sizeof(Obj)>Script.Num() ) \
+			Script.AddZeroed(iCode+(INT)sizeof(Obj)-Script.Num()); \
+		if( iCode+(INT)sizeof(Obj)<=Script.Num() ) \
+			appMemcpy( &Script(iCode), &Obj, sizeof(Obj) ); \
+		if( GScriptCompatCodeOffset ) \
+		{ \
+			*GScriptCompatCodeOffset += CompatBytes; \
+			NoteScriptCompatOffset( *GScriptCompatCodeOffset, iCode+(INT)sizeof(Obj) ); \
+		} \
+		iCode += sizeof(Obj); \
+	}
+
 /*-----------------------------------------------------------------------------
 	FPropertyTag.
 -----------------------------------------------------------------------------*/
@@ -37,9 +82,7 @@ struct FPropertyTag
 		FArchive& SaveAr;
 		FArchive& operator<<( UObject*& Obj )
 		{
-			LOGI("[SER] UObject ptr=%p", Obj);
 			INT Index = SaveAr.MapObject(Obj);
-			LOGI("[SER] Post UObject ptr=%p", Obj);
 			return *this << AR_INDEX(Index);
 		}
 		FArchive& operator<<( FName& Name )
@@ -268,10 +311,6 @@ void UField::AddCppProperty( UProperty* Property )
 }
 void UField::Register()
 {
-	if (GIsRegistering)
-    	LOGI("Registering object %p", this);
-	else
-		LOGI("Registering %s", GetName());
 
 	guard(UField::Register);
 	Super::Register();
@@ -325,10 +364,6 @@ void UStruct::AddCppProperty( UProperty* Property )
 //
 void UStruct::Register()
 {
-	if (GIsRegistering)
-    	LOGI("Registering object %p", this);
-	else
-		LOGI("Registering %s", GetName());
 	guard(UStruct::Register);
 	Super::Register();
 
@@ -414,20 +449,36 @@ void UStruct::Link( FArchive& Ar, UBOOL Props )
 	{
 		if( (ItC->PropertyFlags & CPF_Net) && !GIsEditor )
 		{
+			UStruct* OwnerStruct = Cast<UStruct>( ItC->GetOuter() );
+			if( !OwnerStruct )
+				continue;
+			INT NativeRepOffset = OwnerStruct->RemapScriptOffset( ItC->RepOffset );
+			if( OwnerStruct->Script.Num()==0 || NativeRepOffset<0 || NativeRepOffset>=OwnerStruct->Script.Num() )
+				continue;
+			if( NativeRepOffset != ItC->RepOffset )
+				ItC->RepOffset = (_WORD)NativeRepOffset;
 			ItC->RepOwner = *ItC;
 			FArchive TempAr;
 			INT iCode = ItC->RepOffset;
-			ItC->GetOwnerClass()->SerializeExpr( iCode, TempAr );
+			OwnerStruct->SerializeExpr( iCode, TempAr );
 			Map.Set( *ItC, iCode );
 			for( TFieldIterator<UProperty> ItD(this); *ItD!=*ItC; ++ItD )
 			{
 				if( ItD->PropertyFlags & CPF_Net )
 				{
+					UStruct* OtherOwnerStruct = Cast<UStruct>( ItD->GetOuter() );
+					if( !OtherOwnerStruct )
+						continue;
+					INT OtherNativeRepOffset = OtherOwnerStruct->RemapScriptOffset( ItD->RepOffset );
+					if( OtherOwnerStruct->Script.Num()==0 || OtherNativeRepOffset<0 || OtherNativeRepOffset>=OtherOwnerStruct->Script.Num() )
+						continue;
+					if( OtherNativeRepOffset != ItD->RepOffset )
+						ItD->RepOffset = (_WORD)OtherNativeRepOffset;
 					INT* iCodePtr = Map.Find( *ItD );
 					check(iCodePtr);
 					if
 					(	iCode-ItC->RepOffset==*iCodePtr-ItD->RepOffset
-					&&	appMemcmp(&ItC->GetOwnerClass()->Script(ItC->RepOffset),&ItD->GetOwnerClass()->Script(ItD->RepOffset),iCode-ItC->RepOffset)==0 )
+					&&	appMemcmp(&OwnerStruct->Script(ItC->RepOffset),&OtherOwnerStruct->Script(ItD->RepOffset),iCode-ItC->RepOffset)==0 )
 					{
 						ItD->RepOwner = ItC->RepOwner;
 					}
@@ -620,20 +671,53 @@ void UStruct::Serialize( FArchive& Ar )
 	// Script code.
 	INT ScriptSize = Script.Num();
 	Ar << ScriptSize;
+	static INT ScriptTraceCount = 0;
+	UBOOL DoScriptTrace = Ar.IsLoading() && ScriptTraceCount < 160;
+	if( DoScriptTrace )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V142_SCRIPT_TRACE begin object=%s scriptSize=%i children=%i"), GetFullName(), ScriptSize, Children != NULL );
+		ScriptTraceCount++;
+	}
 	if( Ar.IsLoading() )
 	{
 		Script.Empty();
-		Script.Add( ScriptSize );
+		Script.AddZeroed( ScriptSize );
+		ScriptCompatToNative.Empty( ScriptSize+1 );
+		ScriptCompatToNative.AddZeroed( ScriptSize+1 );
+		for( INT i=0; i<ScriptCompatToNative.Num(); i++ )
+			ScriptCompatToNative(i) = INDEX_NONE;
+		INT iCode = 0;
+		INT CompatCode = 0;
+		INT CompatLimit = ScriptSize;
+		GScriptCompatCodeOffset = &CompatCode;
+		GScriptCompatCodeLimit = &CompatLimit;
+		GScriptCompatToNative = &ScriptCompatToNative;
+		GScriptTraceExpr = DoScriptTrace && ScriptSize <= 64;
+		NoteScriptCompatOffset( 0, 0 );
+		while( CompatCode < ScriptSize )
+			SerializeExpr( iCode, Ar );
+		GScriptTraceExpr = 0;
+		NoteScriptCompatOffset( CompatCode, iCode );
+		GScriptCompatToNative = NULL;
+		GScriptCompatCodeLimit = NULL;
+		GScriptCompatCodeOffset = NULL;
+		if( CompatCode != ScriptSize )
+			appErrorf( TEXT("Script serialization mismatch: got compat offset %i, expected %i, expanded to %i native bytes"), CompatCode, ScriptSize, iCode );
 	}
-	INT iCode = 0;
-	while( iCode < ScriptSize )
-		SerializeExpr( iCode, Ar );
-	if( iCode != ScriptSize )
-		appErrorf( TEXT("Script serialization mismatch: Got %i, expected %i"), iCode, ScriptSize );
+	else
+	{
+		INT iCode = 0;
+		while( iCode < ScriptSize )
+			SerializeExpr( iCode, Ar );
+		if( iCode != ScriptSize )
+			appErrorf( TEXT("Script serialization mismatch: Got %i, expected %i"), iCode, ScriptSize );
+	}
 
 	// Link the properties.
 	if( Ar.IsLoading() )
 		Link( Ar, 1 );
+	if( DoScriptTrace )
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V142_SCRIPT_TRACE end object=%s nativeScriptBytes=%i compatMap=%i"), GetFullName(), Script.Num(), ScriptCompatToNative.Num() );
 
 	unguardobj;
 }
@@ -770,10 +854,6 @@ IMPLEMENT_CLASS(UState);
 //
 void UClass::Register()
 {
-	if (GIsRegistering)
-    	LOGI("Registering object %p", this);
-	else
-		LOGI("Registering %s", GetName());
 	guard(UClass::Register);
 	Super::Register();
 
@@ -951,6 +1031,18 @@ void UClass::Serialize( FArchive& Ar )
 	// Defaults.
 	if( Ar.IsLoading() )
 	{
+		if( GetPropertiesSize() < (INT)sizeof(UObject) )
+		{
+			debugf
+			(
+				NAME_Warning,
+				TEXT("Expanding class %s properties size from %i to native UObject size %i"),
+				GetFullName(),
+				GetPropertiesSize(),
+				sizeof(UObject)
+			);
+			SetPropertiesSize( sizeof(UObject) );
+		}
 		check(GetPropertiesSize()>=sizeof(UObject));
 		check(!GetSuperClass() || !(GetSuperClass()->GetFlags()&RF_NeedLoad));
 		Defaults.Empty( GetPropertiesSize() );
@@ -1039,10 +1131,6 @@ UClass::UClass
 ,	ClassStaticConstructor	( InClassStaticConstructor )
 {
 	//*(const TCHAR**)&ClassConfigName = InConfigName;
-	
-	LOGI("Constructing UClass %s", InNameStr);
-	LOGI("InSuperClass=%p", InSuperClass);
-	LOGI("InWithinClass=%p", InWithinClass);
 
 	ClassConfigName = FName(InConfigName);
 }
@@ -1119,15 +1207,65 @@ EExprToken UStruct::SerializeExpr( INT& iCode, FArchive& Ar )
 {
 	EExprToken Expr=(EExprToken)0;
 	guard(SerializeExpr);
+	GScriptSerializeExprDepth++;
 	#ifdef PLATFORM_DREAMCAST
 	#define XFER(T) {XferAligned(Ar, (T*)&Script(iCode)); iCode += sizeof(T);}
 	#else
-	#define XFER(T) {Ar << *(T*)&Script(iCode); iCode += sizeof(T); }
+	#define XFER(T) {INT CompatBytes=ScriptCompatSize((T*)NULL); if(Ar.IsLoading() && GScriptCompatCodeOffset && GScriptCompatCodeLimit && *GScriptCompatCodeOffset+CompatBytes>*GScriptCompatCodeLimit) appErrorf(TEXT("SerializeExpr read past script object=%s nativeCode=%i compatCode=%i read=%i limit=%i scriptBytes=%i"), GetFullName(), iCode, *GScriptCompatCodeOffset, CompatBytes, *GScriptCompatCodeLimit, Script.Num()); if(Ar.IsLoading() && iCode+(INT)sizeof(T)>Script.Num()) Script.AddZeroed(iCode+(INT)sizeof(T)-Script.Num()); if(!Ar.IsLoading() && iCode+(INT)sizeof(T)>Script.Num()) appErrorf(TEXT("SerializeExpr read past native script object=%s nativeCode=%i read=%i scriptBytes=%i"), GetFullName(), iCode, (INT)sizeof(T), Script.Num()); Ar << *(T*)&Script(iCode); if(GScriptCompatCodeOffset) {*GScriptCompatCodeOffset += CompatBytes; NoteScriptCompatOffset(*GScriptCompatCodeOffset, iCode+(INT)sizeof(T));} iCode += sizeof(T); }
 	#endif
 
 	// Get expr token.
+	INT StartCode = iCode;
+	INT StartCompatCode = GScriptCompatCodeOffset ? *GScriptCompatCodeOffset : iCode;
+	if( Script.Num()==0 )
+	{
+		GScriptSerializeExprDepth--;
+		return EX_Nothing;
+	}
+	if( StartCode<0 || StartCode>=Script.Num() )
+	{
+		if( Ar.IsLoading() && GScriptCompatCodeOffset && GScriptCompatCodeLimit && *GScriptCompatCodeOffset < *GScriptCompatCodeLimit )
+			Script.AddZeroed( StartCode + 1 - Script.Num() );
+		else if( Ar.IsLoading() && GScriptCompatCodeOffset && GScriptCompatCodeLimit && *GScriptCompatCodeOffset == *GScriptCompatCodeLimit && StartCode == Script.Num() )
+		{
+			GScriptSerializeExprDepth--;
+			return EX_EndFunctionParms;
+		}
+		else
+			appErrorf( TEXT("SerializeExpr start past script object=%s nativeCode=%i compatCode=%i scriptBytes=%i"), GetFullName(), StartCode, StartCompatCode, Script.Num() );
+	}
+	NoteScriptCompatOffset( StartCompatCode, StartCode );
 	XFER(BYTE);
 	Expr = (EExprToken)Script(iCode-1);
+	if( GScriptTraceExpr )
+	{
+		BYTE B0 = StartCode+0 < Script.Num() ? Script(StartCode+0) : 0;
+		BYTE B1 = StartCode+1 < Script.Num() ? Script(StartCode+1) : 0;
+		BYTE B2 = StartCode+2 < Script.Num() ? Script(StartCode+2) : 0;
+		BYTE B3 = StartCode+3 < Script.Num() ? Script(StartCode+3) : 0;
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V143_EXPR_TRACE object=%s depth=%i nativeCode=%i compatCode=%i token=%02x bytes=%02x %02x %02x %02x scriptBytes=%i"), GetFullName(), GScriptSerializeExprDepth, StartCode, StartCompatCode, Expr, B0, B1, B2, B3, Script.Num() );
+	}
+	if( GScriptSerializeExprDepth > 128 )
+	{
+		BYTE B0 = StartCode+0 < Script.Num() ? Script(StartCode+0) : 0;
+		BYTE B1 = StartCode+1 < Script.Num() ? Script(StartCode+1) : 0;
+		BYTE B2 = StartCode+2 < Script.Num() ? Script(StartCode+2) : 0;
+		BYTE B3 = StartCode+3 < Script.Num() ? Script(StartCode+3) : 0;
+		appErrorf
+		(
+			TEXT("SerializeExpr recursion depth %i object=%s nativeCode=%i compatCode=%i token=%02x bytes=%02x %02x %02x %02x scriptBytes=%i"),
+			GScriptSerializeExprDepth,
+			GetFullName(),
+			StartCode,
+			StartCompatCode,
+			Expr,
+			B0,
+			B1,
+			B2,
+			B3,
+			Script.Num()
+		);
+	}
 	if( Expr >= EX_MinConversion && Expr < EX_MaxConversion )
 	{
 		// A type conversion.
@@ -1162,10 +1300,9 @@ EExprToken UStruct::SerializeExpr( INT& iCode, FArchive& Ar )
 		case EX_InstanceVariable:
 		case EX_DefaultVariable:
 		{
-			XFER(UProperty*);
+			XFER_SCRIPT_OBJECT(UProperty);
 			break;
 		}
-		case EX_BoolVariable:
 		case EX_Nothing:
 		case EX_EndFunctionParms:
 		case EX_IntZero:
@@ -1180,6 +1317,11 @@ EExprToken UStruct::SerializeExpr( INT& iCode, FArchive& Ar )
 		{
 			break;
 		}
+		case EX_BoolVariable:
+		{
+			SerializeExpr( iCode, Ar ); // Wrapped bool variable expression.
+			break;
+		}
 		case EX_EatString:
 		{
 			SerializeExpr( iCode, Ar ); // String expression.
@@ -1192,7 +1334,7 @@ EExprToken UStruct::SerializeExpr( INT& iCode, FArchive& Ar )
 		}
 		case EX_FinalFunction:
 		{
-			XFER(UStruct*); // Stack node.
+			XFER_SCRIPT_OBJECT(UStruct); // Stack node.
 			while( SerializeExpr( iCode, Ar ) != EX_EndFunctionParms ); // Parms.
 			break;
 		}
@@ -1205,7 +1347,7 @@ EExprToken UStruct::SerializeExpr( INT& iCode, FArchive& Ar )
 		}
 		case EX_NativeParm:
 		{
-			XFER(UProperty*);
+			XFER_SCRIPT_OBJECT(UProperty);
 			break;
 		}
 		case EX_ClassContext:
@@ -1221,6 +1363,11 @@ EExprToken UStruct::SerializeExpr( INT& iCode, FArchive& Ar )
 		case EX_DynArrayElement:
 		{
 			SerializeExpr( iCode, Ar ); // Index expression.
+			SerializeExpr( iCode, Ar ); // Base expression.
+			break;
+		}
+		case EX_DynArrayLength:
+		{
 			SerializeExpr( iCode, Ar ); // Base expression.
 			break;
 		}
@@ -1249,12 +1396,23 @@ EExprToken UStruct::SerializeExpr( INT& iCode, FArchive& Ar )
 		}
 		case EX_UnicodeStringConst:
 		{
-			do XFER(_WORD) while( Script(iCode-1) );
+			_WORD W;
+			do
+			{
+				INT StringCode = iCode;
+				XFER(_WORD);
+#ifdef PLATFORM_DREAMCAST
+				__builtin_memcpy( &W, &Script(StringCode), sizeof( W ) );
+#else
+				W = *(_WORD*)&Script(StringCode);
+#endif
+			}
+			while( W );
 			break;
 		}
 		case EX_ObjectConst:
 		{
-			XFER(UObject*);
+			XFER_SCRIPT_OBJECT(UObject);
 			break;
 		}
 		case EX_NameConst:
@@ -1280,13 +1438,13 @@ EExprToken UStruct::SerializeExpr( INT& iCode, FArchive& Ar )
 		}
 		case EX_MetaCast:
 		{
-			XFER(UClass*);
+			XFER_SCRIPT_OBJECT(UClass);
 			SerializeExpr( iCode, Ar );
 			break;
 		}
 		case EX_DynamicCast:
 		{
-			XFER(UClass*);
+			XFER_SCRIPT_OBJECT(UClass);
 			SerializeExpr( iCode, Ar );
 			break;
 		}
@@ -1316,29 +1474,50 @@ EExprToken UStruct::SerializeExpr( INT& iCode, FArchive& Ar )
 		}
 		case EX_Case:
 		{
+			INT OffsetCode = iCode;
+			XFER(_WORD); // Code offset.
+			_WORD W;
 #ifdef PLATFORM_DREAMCAST
 			// avoid unaligned access
-			_WORD W;
-			__builtin_memcpy( &W, &Script(iCode), sizeof( W ) );
-			XFER(_WORD); // Code offset.
+			__builtin_memcpy( &W, &Script(OffsetCode), sizeof( W ) );
 			if( W != MAXWORD )
 				SerializeExpr( iCode, Ar ); // Boolean expr.
 #else
-			_WORD *W=(_WORD*)&Script(iCode);
-			XFER(_WORD);; // Code offset.
-			if( *W != MAXWORD )
+			W = *(_WORD*)&Script(OffsetCode);
+			if( W != MAXWORD )
 				SerializeExpr( iCode, Ar ); // Boolean expr.
 #endif
 			break;
 		}
 		case EX_LabelTable:
 		{
-			check((iCode&3)==0);
 			for( ; ; )
 			{
-				FLabelEntry* E = (FLabelEntry*)&Script(iCode);
-				XFER(FLabelEntry);
-				if( E->Name == NAME_None )
+				FName LabelName;
+				INT LabelICode;
+				if( Ar.IsLoading() )
+				{
+					if( iCode+(INT)sizeof(FName)+(INT)sizeof(INT)>Script.Num() )
+						Script.AddZeroed( iCode+(INT)sizeof(FName)+(INT)sizeof(INT)-Script.Num() );
+					Ar << LabelName << LabelICode;
+					appMemcpy( &Script(iCode), &LabelName, sizeof(FName) );
+					if( GScriptCompatCodeOffset )
+						*GScriptCompatCodeOffset += ScriptCompatSize((FName*)NULL);
+					iCode += sizeof(FName);
+					appMemcpy( &Script(iCode), &LabelICode, sizeof(INT) );
+					if( GScriptCompatCodeOffset )
+						*GScriptCompatCodeOffset += ScriptCompatSize((INT*)NULL);
+					iCode += sizeof(INT);
+				}
+				else
+				{
+					appMemcpy( &LabelName, &Script(iCode), sizeof(FName) );
+					iCode += sizeof(FName);
+					appMemcpy( &LabelICode, &Script(iCode), sizeof(INT) );
+					iCode += sizeof(INT);
+					Ar << LabelName << LabelICode;
+				}
+				if( LabelName == NAME_None )
 					break;
 			}
 			break;
@@ -1357,14 +1536,14 @@ EExprToken UStruct::SerializeExpr( INT& iCode, FArchive& Ar )
 		case EX_StructCmpEq:
 		case EX_StructCmpNe:
 		{
-			XFER(UStruct*); // Struct.
+			XFER_SCRIPT_OBJECT(UStruct); // Struct.
 			SerializeExpr( iCode, Ar ); // Left expr.
 			SerializeExpr( iCode, Ar ); // Right expr.
 			break;
 		}
 		case EX_StructMember:
 		{
-			XFER(UProperty*); // Property.
+			XFER_SCRIPT_OBJECT(UProperty); // Property.
 			SerializeExpr( iCode, Ar ); // Inner expr.
 			break;
 		}
@@ -1375,6 +1554,7 @@ EExprToken UStruct::SerializeExpr( INT& iCode, FArchive& Ar )
 			break;
 		}
 	}
+	GScriptSerializeExprDepth--;
 	return Expr;
 	#undef XFER
 	unguardf(( TEXT("(%02X)"), Expr ));
@@ -1413,6 +1593,12 @@ void UFunction::Serialize( FArchive& Ar )
 	// Replication info.
 	if( FunctionFlags & FUNC_Net )
 		Ar << RepOffset;
+	if( Ar.IsLoading() && Script.Num() )
+	{
+		INT NativeRepOffset = RemapScriptOffset( RepOffset );
+		if( NativeRepOffset != RepOffset )
+			RepOffset = (_WORD)NativeRepOffset;
+	}
 
 	// Precomputation.
 	if( Ar.IsLoading() )

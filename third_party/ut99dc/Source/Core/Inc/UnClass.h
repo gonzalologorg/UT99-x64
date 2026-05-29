@@ -142,6 +142,7 @@ class CORE_API UStruct : public UField
 	INT					PropertiesSize;
 	FName				FriendlyName;
 	TArray<BYTE>		Script;
+	TArray<INT>			ScriptCompatToNative;
 
 	// Compiler info.
 	INT					TextPos;
@@ -185,6 +186,14 @@ class CORE_API UStruct : public UField
 	void SetPropertiesSize( INT NewSize )
 	{
 		PropertiesSize = NewSize;
+	}
+	INT RemapScriptOffset( INT Offset ) const
+	{
+		if( Offset==MAXWORD || Offset==INDEX_NONE )
+			return Offset;
+		if( Offset>=0 && Offset<ScriptCompatToNative.Num() && ScriptCompatToNative(Offset)!=INDEX_NONE )
+			return ScriptCompatToNative(Offset);
+		return Offset;
 	}
 	UBOOL IsChildOf( const UStruct* SomeBase ) const
 	{

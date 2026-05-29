@@ -98,7 +98,8 @@ final class UT99Paths {
         return new File(system, "Core.u").isFile()
                 && new File(system, "Engine.u").isFile()
                 && new File(system, "Botpack.u").isFile()
-                && new File(maps, "CityIntro.unr").isFile();
+                && new File(maps, "CityIntro.unr").isFile()
+                && new File(maps, "Entry.unr").isFile();
     }
 
     private static void mergeCaseVariantDirectory(File root, String canonicalName) throws IOException {
@@ -428,6 +429,7 @@ final class UT99Paths {
         // files did not contain that key, so preserve user settings but append
         // a final override once.
         ensureAndroidVisualGameplayConfig(system);
+        ensureAndroidCoreSystemPaths(system);
 
         // UT99_ANDROID_V86_CONFIG_PRESERVE:
         // Do not rewrite AndroidUT99.ini / AndroidUser.ini after they already
@@ -447,6 +449,32 @@ final class UT99Paths {
         }
         ensureAndroidLeanMenuConfig(system);
         return created;
+    }
+
+    private static void ensureAndroidCoreSystemPaths(File systemDir) throws IOException {
+        if (systemDir == null) return;
+
+        String pathBlock = "\n\n; UT99_ANDROID_V139_CORE_SYSTEM_PATHS\n" +
+                "[Core.System]\n" +
+                "PurgeCacheDays=30\n" +
+                "SavePath=../Save\n" +
+                "CachePath=../Cache\n" +
+                "CacheExt=.uxx\n" +
+                "Paths=../System/*.u\n" +
+                "Paths=../Maps/*.unr\n" +
+                "Paths=../Textures/*.utx\n" +
+                "Paths=../Sounds/*.uax\n" +
+                "Paths=../Music/*.umx\n";
+
+        String[] names = {"AndroidUT99.ini", "Default.ini", "UnrealTournament.ini", "DCUtil.ini", "DefaultDCUtil.ini"};
+        for (String name : names) {
+            File ini = new File(systemDir, name);
+            if (!ini.isFile() || ini.length() == 0L) continue;
+            String text = readUtf8(ini);
+            if (text.indexOf("UT99_ANDROID_V139_CORE_SYSTEM_PATHS") < 0) {
+                writeUtf8(ini, text + pathBlock);
+            }
+        }
     }
 
 
@@ -733,7 +761,9 @@ final class UT99Paths {
                 "Also accepted for older test builds:\n" +
                 legacy.getAbsolutePath() + "\n\n" +
                 "Required:\n" +
-                "System, Maps, Textures, Sounds, Music\n\n" +
+                "System, Maps, Textures, Sounds, Music\n" +
+                "System/Core.u, System/Engine.u, System/Botpack.u\n" +
+                "Maps/Entry.unr and Maps/CityIntro.unr\n\n" +
                 "You can now select either the Unreal Tournament folder or a ZIP containing these folders.";
     }
 }
