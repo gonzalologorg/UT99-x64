@@ -32,6 +32,16 @@ CORE_API INT GNativeDuplicate=0;
 	CORE_API void GInitRunaway() {}
 #endif
 
+static inline INT RemapRuntimeScriptOffset( FFrame& Stack, INT Offset )
+{
+	if( Offset==MAXWORD || !Stack.Node )
+		return Offset;
+	INT NativeOffset = Stack.Node->RemapScriptOffset( Offset );
+	if( NativeOffset != Offset )
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V147_OFFSET_REMAP node=%s compat=%i native=%i"), Stack.Node->GetFullName(), Offset, NativeOffset );
+	return NativeOffset;
+}
+
 /*-----------------------------------------------------------------------------
 	FFrame implementation.
 -----------------------------------------------------------------------------*/
@@ -192,6 +202,13 @@ void UObject::execUndefined( FFrame& Stack, RESULT_DECL  )
 {
 	guardSlow(UObject::execUndefined);
 
+	if( Stack.Code[-1] == 0x77 )
+	{
+		debugf( NAME_Warning, TEXT("UT99_ANDROID_V146_NATIVE_FALLBACK token=77 using execNotEqual_ObjectObject") );
+		execNotEqual_ObjectObject( Stack, Result );
+		return;
+	}
+
 	Stack.Logf( NAME_Critical, TEXT("Unknown code token %02X"), Stack.Code[-1] );
 
 	unguardexecSlow;
@@ -261,7 +278,7 @@ void UObject::execClassContext( FFrame& Stack, RESULT_DECL )
 		Stack.Logf( TEXT("Accessed null class context") );
 		INT wSkip = Stack.ReadWord();
 		BYTE bSize = *Stack.Code++;
-		Stack.Code += wSkip;
+		Stack.Code = &Stack.Node->Script( RemapRuntimeScriptOffset( Stack, wSkip ) );
 		GPropAddr = NULL;
 		GProperty = NULL;
 		if( Result )
@@ -478,6 +495,7 @@ void UObject::execSwitch( FFrame& Stack, RESULT_DECL )
 
 		// Get address of next handler.
 		INT wNext = Stack.ReadWord();
+		wNext = RemapRuntimeScriptOffset( Stack, wNext );
 		if( wNext == MAXWORD ) // Default case or end of cases.
 			break;
 
@@ -504,6 +522,7 @@ void UObject::execCase( FFrame& Stack, RESULT_DECL )
 {
 	guardSlow(UObject::execCase);
 	INT wNext = Stack.ReadWord();
+	wNext = RemapRuntimeScriptOffset( Stack, wNext );
 	if( wNext != MAXWORD )
 	{
 		// Skip expression.
@@ -521,7 +540,7 @@ void UObject::execJump( FFrame& Stack, RESULT_DECL )
 	CHECK_RUNAWAY;
 
 	// Jump immediate.
-	Stack.Code = &Stack.Node->Script(Stack.ReadWord() );
+	Stack.Code = &Stack.Node->Script( RemapRuntimeScriptOffset( Stack, Stack.ReadWord() ) );
 
 	unguardexecSlow;
 }
@@ -534,6 +553,7 @@ void UObject::execJumpIfNot( FFrame& Stack, RESULT_DECL )
 
 	// Get code offset.
 	INT wOffset = Stack.ReadWord();
+	wOffset = RemapRuntimeScriptOffset( Stack, wOffset );
 
 	// Get boolean test value.
 	UBOOL Value=0;
@@ -660,7 +680,7 @@ void UObject::execContext( FFrame& Stack, RESULT_DECL )
 		Stack.Logf( TEXT("Accessed None") );
 		INT wSkip = Stack.ReadWord();
 		BYTE bSize = *Stack.Code++;
-		Stack.Code += wSkip;
+		Stack.Code = &Stack.Node->Script( RemapRuntimeScriptOffset( Stack, wSkip ) );
 		GPropAddr = NULL;
 		GProperty = NULL;
 		if( Result )

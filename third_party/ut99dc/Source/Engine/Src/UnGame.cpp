@@ -172,9 +172,13 @@ void UGameEngine::Init()
 		Exchange( GLevel, GEntry );
 		debugf( NAME_Init, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE entry map loaded GEntry=%i"), GEntry != NULL );
 #ifdef PLATFORM_LOW_MEMORY
+#if defined(PLATFORM_64BIT)
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V150_ENTRY_GC_SKIP skipping low-memory Entry GC on 64-bit") );
+#else
 		// Purge unused objects and flush caches.
 		Flush(1);
 		UObject::CollectGarbage( RF_Native );
+#endif
 #endif
 	}
 
@@ -1026,35 +1030,71 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 		Info->bStartup = 1;
 
 		// Init the game.
+#if defined(PLATFORM_64BIT)
+		if( Info->Game && appStricmp(GLevel->GetOuter()->GetName(),TEXT("Entry"))==0 )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V145_BEGINPLAY_TRACE skipping Entry eventInitGame on 64-bit game=%s"), Info->Game->GetFullName() );
+		}
+		else
+#endif
 		if( Info->Game )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V145_BEGINPLAY_TRACE eventInitGame begin game=%s options=%s"), Info->Game->GetFullName(), Options );
 			Info->Game->eventInitGame( Options, Error );
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V145_BEGINPLAY_TRACE eventInitGame done game=%s error=%s"), Info->Game->GetFullName(), *Error );
+		}
 
-		// Send PreBeginPlay.
-		for( i=0; i<GLevel->Actors.Num(); i++ )
-			if( GLevel->Actors(i) )
-				GLevel->Actors(i)->eventPreBeginPlay();
+		UBOOL bSkipEntryScriptStartup = 0;
+#if defined(PLATFORM_64BIT)
+		bSkipEntryScriptStartup = appStricmp(GLevel->GetOuter()->GetName(),TEXT("Entry"))==0;
+#endif
+		if( bSkipEntryScriptStartup )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V148_ENTRY_STARTUP_SKIP skipping Entry actor script startup events on 64-bit actors=%i"), GLevel->Actors.Num() );
+		}
+		else
+		{
+			// Send PreBeginPlay.
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V145_BEGINPLAY_TRACE PreBeginPlay loop begin actors=%i"), GLevel->Actors.Num() );
+			for( i=0; i<GLevel->Actors.Num(); i++ )
+				if( GLevel->Actors(i) )
+					GLevel->Actors(i)->eventPreBeginPlay();
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V145_BEGINPLAY_TRACE PreBeginPlay loop done") );
 
-		// Set BeginPlay.
-		for( i=0; i<GLevel->Actors.Num(); i++ )
-			if( GLevel->Actors(i) )
-				GLevel->Actors(i)->eventBeginPlay();
+			// Set BeginPlay.
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V145_BEGINPLAY_TRACE BeginPlay loop begin") );
+			for( i=0; i<GLevel->Actors.Num(); i++ )
+				if( GLevel->Actors(i) )
+					GLevel->Actors(i)->eventBeginPlay();
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V145_BEGINPLAY_TRACE BeginPlay loop done") );
+		}
 
 		// Set zones.
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V145_BEGINPLAY_TRACE SetActorZone loop begin") );
 		for( i=0; i<GLevel->Actors.Num(); i++ )
 			if( GLevel->Actors(i) )
 				GLevel->SetActorZone( GLevel->Actors(i), 1, 1 );
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V145_BEGINPLAY_TRACE SetActorZone loop done") );
 
-		// Post begin play.
-		for( i=0; i<GLevel->Actors.Num(); i++ )
-			if( GLevel->Actors(i) )
-				GLevel->Actors(i)->eventPostBeginPlay();
+		if( !bSkipEntryScriptStartup )
+		{
+			// Post begin play.
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V145_BEGINPLAY_TRACE PostBeginPlay loop begin") );
+			for( i=0; i<GLevel->Actors.Num(); i++ )
+				if( GLevel->Actors(i) )
+					GLevel->Actors(i)->eventPostBeginPlay();
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V145_BEGINPLAY_TRACE PostBeginPlay loop done") );
 
-		// Begin scripting.
-		for( i=0; i<GLevel->Actors.Num(); i++ )
-			if( GLevel->Actors(i) )
-				GLevel->Actors(i)->eventSetInitialState();
+			// Begin scripting.
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V145_BEGINPLAY_TRACE SetInitialState loop begin") );
+			for( i=0; i<GLevel->Actors.Num(); i++ )
+				if( GLevel->Actors(i) )
+					GLevel->Actors(i)->eventSetInitialState();
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V145_BEGINPLAY_TRACE SetInitialState loop done") );
+		}
 
 		// Find bases
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V145_BEGINPLAY_TRACE FindBases loop begin") );
 		for( i=0; i<GLevel->Actors.Num(); i++ )
 		{
 			if( GLevel->Actors(i) ) 
@@ -1081,6 +1121,7 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 				}
 			}
 		}
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V145_BEGINPLAY_TRACE FindBases loop done") );
 		Info->bStartup = 0;
 	}
 	else GLevel->TimeSeconds = GLevel->GetLevelInfo()->TimeSeconds;

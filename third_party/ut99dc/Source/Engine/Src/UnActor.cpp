@@ -708,6 +708,18 @@ void AZoneInfo::PostEditChange()
 	AActor.
 -----------------------------------------------------------------------------*/
 
+static UBOOL IsKnownUObjectPointer( UObject* Obj )
+{
+	guard(IsKnownUObjectPointer);
+	if( !Obj )
+		return 0;
+	for( FObjectIterator It; It; ++It )
+		if( *It==Obj )
+			return 1;
+	return 0;
+	unguard;
+}
+
 void AActor::Destroy()
 {
 	guard(AActor::Destroy);
@@ -727,8 +739,18 @@ void AActor::PostLoad()
 	Super::PostLoad();
 	if( GetClass()->ClassFlags & CLASS_Localized )
 		LoadLocalized();
+	if( Brush && !IsKnownUObjectPointer( Brush ) )
+	{
+		debugf( NAME_Warning, TEXT("UT99_ANDROID_V158_POSTLOAD_BAD_BRUSH actor=%s"), GetFullName() );
+		Brush = NULL;
+	}
 	if( Brush )
 		Brush->SetFlags( RF_Transactional );
+	if( Brush && Brush->Polys && !IsKnownUObjectPointer( Brush->Polys ) )
+	{
+		debugf( NAME_Warning, TEXT("UT99_ANDROID_V158_POSTLOAD_BAD_POLYS actor=%s brush=%s"), GetFullName(), Brush->GetFullName() );
+		Brush->Polys = NULL;
+	}
 	if( Brush && Brush->Polys )
 		Brush->Polys->SetFlags( RF_Transactional );
 	unguard;

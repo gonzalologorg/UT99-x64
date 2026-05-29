@@ -80,6 +80,18 @@ extern "C"
 	DOUBLE  LTimeTotal1, LTimeTotal2, LinePixels;
 }
 
+static UBOOL IsKnownTexturePointer( UTexture* Texture )
+{
+	guard(IsKnownTexturePointer);
+	if( !Texture )
+		return 0;
+	for( FObjectIterator It; It; ++It )
+		if( *It==Texture )
+			return Texture->IsA( UTexture::StaticClass() );
+	return 0;
+	unguard;
+}
+
 
 /*-----------------------------------------------------------------------------
 	Package implementation.
@@ -4648,7 +4660,18 @@ void UWetTexture::PostLoad()
 	guard(UWetTexture::PostLoad);
 	Super::PostLoad();
 
+#if defined(PLATFORM_64BIT)
+	OldSourceTex = NULL;
+	LocalSourceBitmap = NULL;
+#endif
+
 	if( !SourceTexture ) return;
+	if( !IsKnownTexturePointer( SourceTexture ) )
+	{
+		debugf( NAME_Warning, TEXT("UT99_ANDROID_V159_WET_BAD_SOURCE texture=%s"), GetFullName() );
+		SourceTexture = NULL;
+		return;
+	}
 
 	// Make sure the source texture data is in memory !
 	FTextureInfo Info; 
@@ -4670,6 +4693,14 @@ void UWetTexture::PostLoad()
 		{
 			if( LocalSourceBitmap ) delete LocalSourceBitmap;
 			LocalSourceBitmap = new BYTE[ USize * VSize ]; 
+			if( !SourceTexture->Mips.Num() || !SourceTexture->Mips(0).DataArray.Num() )
+			{
+				debugf( NAME_Warning, TEXT("UT99_ANDROID_V159_WET_EMPTY_SOURCE texture=%s source=%s"), GetFullName(), SourceTexture->GetFullName() );
+				delete LocalSourceBitmap;
+				LocalSourceBitmap = NULL;
+				SourceTexture = NULL;
+				return;
+			}
 			BYTE* SourceMapAddr  = &SourceTexture->Mips(0).DataArray(0);
 			
 			for( INT V=0; V<VSize; V++)

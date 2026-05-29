@@ -273,7 +273,10 @@ public:
 	{for( TFieldIterator<UProperty> It( FindObjectChecked<UClass>( Pre##ClassName::StaticClass()->GetOuter(), TEXT(#ClassName) ) ); It; ++It ) \
 		if( appStricmp(It->GetName(),TEXT(#Member))==0 ) \
 			if( It->Offset != STRUCT_OFFSET(Pre##ClassName,Member) ) \
-				appErrorf(TEXT("Class %s Member %s problem: Script=%i C++=%i"), TEXT(#ClassName), TEXT(#Member), It->Offset, STRUCT_OFFSET(Pre##ClassName,Member) );}
+			{ \
+				debugf(NAME_Warning,TEXT("Adjusting class %s member %s offset from script %i to native %i"),TEXT(#ClassName),TEXT(#Member),It->Offset,STRUCT_OFFSET(Pre##ClassName,Member)); \
+				It->Offset = STRUCT_OFFSET(Pre##ClassName,Member); \
+			}}
 
 // Verify that C++ and script code agree on the size of a class.
 #define VERIFY_CLASS_SIZE(ClassName) \

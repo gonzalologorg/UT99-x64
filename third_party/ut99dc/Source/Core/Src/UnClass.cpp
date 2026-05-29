@@ -15,6 +15,7 @@
 
 static INT* GScriptCompatCodeOffset = NULL;
 static INT* GScriptCompatCodeLimit = NULL;
+static INT* GScriptPhysicalCodeLimit = NULL;
 static TArray<INT>* GScriptCompatToNative = NULL;
 static INT GScriptSerializeExprDepth = 0;
 static UBOOL GScriptTraceExpr = 0;
@@ -568,7 +569,7 @@ void UStruct::SerializeTaggedProperties( FArchive& Ar, BYTE* Data, UClass* Defau
 #endif
 			if( !Property )
 			{
-				debugf( NAME_Warning, TEXT("Property %s of %s not found"), *Tag.Name, GetFullName() );
+				debugf( NAME_Warning, TEXT("Property %s of %s not found tell=%i size=%i type=%i item=%s array=%i"), *Tag.Name, GetFullName(), Ar.Tell(), Tag.Size, Tag.Type, *Tag.ItemName, Tag.ArrayIndex );
 			}
 			else if( Tag.Type==NAME_StringProperty && Property->GetID()==NAME_StrProperty )
 			{
@@ -689,8 +690,12 @@ void UStruct::Serialize( FArchive& Ar )
 		INT iCode = 0;
 		INT CompatCode = 0;
 		INT CompatLimit = ScriptSize;
+		INT PhysicalLimit = Ar.Tell() + ScriptSize;
+		if( GetLinker() && GetLinkerIndex()!=INDEX_NONE && IsA(UFunction::StaticClass()) && Ar.Ver()>63 )
+			PhysicalLimit = GetLinker()->ExportMap(GetLinkerIndex()).SerialOffset + GetLinker()->ExportMap(GetLinkerIndex()).SerialSize - 7;
 		GScriptCompatCodeOffset = &CompatCode;
 		GScriptCompatCodeLimit = &CompatLimit;
+		GScriptPhysicalCodeLimit = &PhysicalLimit;
 		GScriptCompatToNative = &ScriptCompatToNative;
 		GScriptTraceExpr = DoScriptTrace && ScriptSize <= 64;
 		NoteScriptCompatOffset( 0, 0 );
@@ -699,6 +704,7 @@ void UStruct::Serialize( FArchive& Ar )
 		GScriptTraceExpr = 0;
 		NoteScriptCompatOffset( CompatCode, iCode );
 		GScriptCompatToNative = NULL;
+		GScriptPhysicalCodeLimit = NULL;
 		GScriptCompatCodeLimit = NULL;
 		GScriptCompatCodeOffset = NULL;
 		if( CompatCode != ScriptSize )
@@ -1012,7 +1018,12 @@ void UClass::Link( FArchive& Ar, UBOOL Props )
 void UClass::Serialize( FArchive& Ar )
 {
 	guard(UClass::Serialize);
+	INT TraceClassSerialize = Ar.IsLoading() && appStricmp(GetFullName(),TEXT("Class Engine.Actor"))==0;
+	if( TraceClassSerialize )
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V154_CLASS_SERIALIZE begin object=%s tell=%i"), GetFullName(), Ar.Tell() );
 	Super::Serialize( Ar );
+	if( TraceClassSerialize )
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V154_CLASS_SERIALIZE after_super object=%s tell=%i props=%i"), GetFullName(), Ar.Tell(), GetPropertiesSize() );
 
 	// Variables.
 	if( Ar.Ver() <= 61 )//oldver
@@ -1022,11 +1033,26 @@ void UClass::Serialize( FArchive& Ar )
 		SetFlags( RF_Public | RF_Standalone );
 	}
 	Ar << ClassFlags << ClassGuid;
+	if( TraceClassSerialize )
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V154_CLASS_SERIALIZE after_flags object=%s tell=%i flags=%08x"), GetFullName(), Ar.Tell(), ClassFlags );
 	Ar << Dependencies << PackageImports;
+	if( TraceClassSerialize )
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V154_CLASS_SERIALIZE after_deps object=%s tell=%i deps=%i imports=%i"), GetFullName(), Ar.Tell(), Dependencies.Num(), PackageImports.Num() );
+	if( TraceClassSerialize )
+	{
+		INT SavedClassPos = Ar.Tell();
+		BYTE PeekBytes[8];
+		for( INT PeekIndex=0; PeekIndex<8; PeekIndex++ )
+			Ar << PeekBytes[PeekIndex];
+		Ar.Seek( SavedClassPos );
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V155_CLASS_BYTES object=%s tell=%i bytes=%02x %02x %02x %02x %02x %02x %02x %02x"), GetFullName(), SavedClassPos, PeekBytes[0], PeekBytes[1], PeekBytes[2], PeekBytes[3], PeekBytes[4], PeekBytes[5], PeekBytes[6], PeekBytes[7] );
+	}
 	if( Ar.Ver()>=62 )
 		Ar << ClassWithin << ClassConfigName;
 	else
 		ClassConfigName = FName(TEXT("System"));
+	if( TraceClassSerialize )
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V154_CLASS_SERIALIZE before_defaults object=%s tell=%i within=%s config=%s"), GetFullName(), Ar.Tell(), ClassWithin ? ClassWithin->GetFullName() : TEXT("None"), *ClassConfigName );
 
 	// Defaults.
 	if( Ar.IsLoading() )
@@ -1217,6 +1243,12 @@ EExprToken UStruct::SerializeExpr( INT& iCode, FArchive& Ar )
 	// Get expr token.
 	INT StartCode = iCode;
 	INT StartCompatCode = GScriptCompatCodeOffset ? *GScriptCompatCodeOffset : iCode;
+	if( StartCode == Script.Num()
+	&&	(!Ar.IsLoading() || !GScriptCompatCodeOffset || !GScriptCompatCodeLimit || *GScriptCompatCodeOffset >= *GScriptCompatCodeLimit) )
+	{
+		GScriptSerializeExprDepth--;
+		return EX_EndFunctionParms;
+	}
 	if( Script.Num()==0 )
 	{
 		GScriptSerializeExprDepth--;
@@ -1226,7 +1258,13 @@ EExprToken UStruct::SerializeExpr( INT& iCode, FArchive& Ar )
 	{
 		if( Ar.IsLoading() && GScriptCompatCodeOffset && GScriptCompatCodeLimit && *GScriptCompatCodeOffset < *GScriptCompatCodeLimit )
 			Script.AddZeroed( StartCode + 1 - Script.Num() );
-		else if( Ar.IsLoading() && GScriptCompatCodeOffset && GScriptCompatCodeLimit && *GScriptCompatCodeOffset == *GScriptCompatCodeLimit && StartCode == Script.Num() )
+		else if( Ar.IsLoading() && GScriptCompatCodeOffset && GScriptCompatCodeLimit && *GScriptCompatCodeOffset >= *GScriptCompatCodeLimit )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V156_SCRIPT_EOF_LIMIT object=%s nativeCode=%i compatCode=%i limit=%i scriptBytes=%i"), GetFullName(), StartCode, *GScriptCompatCodeOffset, *GScriptCompatCodeLimit, Script.Num() );
+			GScriptSerializeExprDepth--;
+			return EX_EndFunctionParms;
+		}
+		else if( Ar.IsLoading() && StartCode == Script.Num() )
 		{
 			GScriptSerializeExprDepth--;
 			return EX_EndFunctionParms;

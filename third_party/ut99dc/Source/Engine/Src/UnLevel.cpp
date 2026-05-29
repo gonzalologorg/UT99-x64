@@ -121,6 +121,13 @@ void ULevel::DetailChange( UBOOL NewDetail )
 {
 	guard(ULevel::DetailChange);
 	GetLevelInfo()->bHighDetailMode = NewDetail;
+#if defined(PLATFORM_64BIT)
+	if( appStricmp(GetOuter()->GetName(),TEXT("Entry"))==0 )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V149_DETAIL_SKIP skipping Entry GameInfo.DetailChange on 64-bit") );
+		return;
+	}
+#endif
 	if( GetLevelInfo()->Game )
 		GetLevelInfo()->Game->eventDetailChange();
 	unguard;
