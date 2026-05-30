@@ -290,6 +290,7 @@ public class GameActivity extends SDLActivity {
             fw.write("\n; UT99_ANDROID_V79_OUYA_AUDIO_REENABLE\n");
             fw.write("[Engine.Engine]\n");
             fw.write("AudioDevice=Audio.GenericAudioSubsystem\n");
+            fw.write("UseSound=True\n");
             fw.write("[Engine.GameEngine]\n");
             fw.write("UseSound=True\n");
             fw.write("[Audio.GenericAudioSubsystem]\n");

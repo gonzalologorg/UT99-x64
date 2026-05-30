@@ -19,5 +19,10 @@ target_include_directories(${PROJECT_NAME}
 
 target_link_libraries(${PROJECT_NAME} Engine Render Core)
 
+if(ANDROID OR USE_SDL)
+  target_include_directories(${PROJECT_NAME} PRIVATE ${SDL2_INCLUDE_DIR})
+  target_link_libraries(${PROJECT_NAME} ${SDL2_LIBRARY})
+endif()
+
 target_compile_definitions(${PROJECT_NAME} PRIVATE AUDIO_EXPORTS UPACKAGE_NAME=${PROJECT_NAME})
 

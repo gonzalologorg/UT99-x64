@@ -22,6 +22,9 @@ Revision history:
 #ifndef PLATFORM_DREAMCAST
 #include <linux/soundcard.h>
 #endif
+#if PLATFORM_ANDROID
+#include "SDL2/SDL.h"
+#endif
 #include "AudioPrivate.h"
 
 /*------------------------------------------------------------------------------------
@@ -30,6 +33,11 @@ Revision history:
 
 // Audio Device
 INT AudioDevice = -1;
+#if PLATFORM_ANDROID
+static SDL_AudioDeviceID SDLAudioDevice = 0;
+static INT SDLAudioBytesPerSample = 2;
+static INT SDLAudioChannels = 2;
+#endif
 
 #define FRAGMENT_SIZE 0x0002000C
 
@@ -45,6 +53,56 @@ void* GetAudioBuffer()
 
 INT OpenAudio( DWORD Rate, INT OutputMode, INT Latency )
 {
+#if PLATFORM_ANDROID
+	SDL_AudioSpec Desired;
+	SDL_AudioSpec Obtained;
+	SDL_zero( Desired );
+	SDL_zero( Obtained );
+	Desired.freq = Rate;
+	Desired.format = (OutputMode & AUDIO_16BIT) ? AUDIO_S16SYS : AUDIO_U8;
+	Desired.channels = (OutputMode & AUDIO_STEREO) ? 2 : 1;
+	Desired.samples = 1024;
+	Desired.callback = NULL;
+
+	SDLAudioDevice = SDL_OpenAudioDevice( NULL, 0, &Desired, &Obtained, 0 );
+	if( !SDLAudioDevice )
+	{
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V206_SDL_AUDIO_OPEN_FAILED error=%s"), appFromAnsi(SDL_GetError()) );
+		return 0;
+	}
+
+	AudioDevice = 1;
+	AudioRate = Obtained.freq;
+	AudioFormat = 0;
+	if( Obtained.format == AUDIO_S16LSB || Obtained.format == AUDIO_S16MSB || Obtained.format == AUDIO_S16SYS )
+	{
+		AudioFormat |= AUDIO_16BIT;
+		SDLAudioBytesPerSample = 2;
+	}
+	else
+	{
+		SDLAudioBytesPerSample = 1;
+	}
+	if( Obtained.channels >= 2 )
+	{
+		AudioFormat |= AUDIO_STEREO;
+		SDLAudioChannels = 2;
+	}
+	else
+	{
+		SDLAudioChannels = 1;
+	}
+	BufferSize = Obtained.samples * SDLAudioChannels * SDLAudioBytesPerSample;
+	AudioBuffer = (BYTE*) appMalloc( BufferSize, TEXT("Audio Buffer") );
+	SDL_PauseAudioDevice( SDLAudioDevice, 0 );
+	debugf( NAME_Init, TEXT("UT99_ANDROID_V206_SDL_AUDIO_OPEN rate=%i channels=%i format=0x%04x samples=%i buffer=%i"),
+		AudioRate,
+		SDLAudioChannels,
+		(INT)Obtained.format,
+		(INT)Obtained.samples,
+		BufferSize );
+	return 1;
+#else
 #ifndef PLATFORM_DREAMCAST
 	// Open the audio device.
 	AudioDevice = open("/dev/dsp", O_WRONLY | O_NONBLOCK, 0);
@@ -125,6 +183,7 @@ INT OpenAudio( DWORD Rate, INT OutputMode, INT Latency )
 	AudioBuffer = (BYTE*) appMalloc( BufferSize, TEXT("Audio Buffer") );
 #endif
 	return 1;
+#endif
 }
 
 INT ReopenAudioDevice( DWORD Rate, INT OutputMode, INT Latency )
@@ -148,7 +207,16 @@ void CloseAudio()
 	}
 	if (AudioDevice > -1)
 	{
+#if PLATFORM_ANDROID
+		if( SDLAudioDevice )
+		{
+			SDL_ClearQueuedAudio( SDLAudioDevice );
+			SDL_CloseAudioDevice( SDLAudioDevice );
+			SDLAudioDevice = 0;
+		}
+#else
 		close(AudioDevice);
+#endif
 		AudioDevice = -1;
 	}
 	AUnlock;
@@ -157,6 +225,12 @@ void CloseAudio()
 // Audio flow control.
 void PlayAudio()
 {
+#if PLATFORM_ANDROID
+	if( !SDLAudioDevice || !AudioBuffer || BufferSize <= 0 )
+		return;
+	SDL_QueueAudio( SDLAudioDevice, AudioBuffer, BufferSize );
+	return;
+#else
 	if (AudioDevice == -1)
 		return;
 		
@@ -177,6 +251,7 @@ void PlayAudio()
 				break;
 		}
 	}
+#endif
 }
 
 /*------------------------------------------------------------------------------------
@@ -341,6 +416,15 @@ void AudioSleep(INT	ms)
 // Blocks until audio device is open.
 INT AudioWait()
 {
+#if PLATFORM_ANDROID
+	if( SDLAudioDevice && AudioInitialized )
+	{
+		while( SDL_GetQueuedAudioSize( SDLAudioDevice ) > (Uint32)(BufferSize * 3) )
+			SDL_Delay( 1 );
+		return 1;
+	}
+	return 0;
+#else
 	if (AudioDevice && AudioInitialized)
 	{
 		fd_set fdset;
@@ -350,4 +434,5 @@ INT AudioWait()
 		return 1;
 	} else
 		return 0;
+#endif
 }

@@ -88,6 +88,7 @@ private:
 	// UNSDLViewport private methods.
 	static void InitKeyMap();
 	UBOOL CauseInputEvent( INT iKey, EInputAction Action, FLOAT Delta=0.0 );
+	UBOOL GetOutputSize( INT& OutX, INT& OutY );
 };
 
 /*-----------------------------------------------------------------------------

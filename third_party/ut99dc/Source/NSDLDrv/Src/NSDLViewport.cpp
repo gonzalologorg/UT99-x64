@@ -216,6 +216,40 @@ void UNSDLViewport::SetModeCursor()
 }
 
 //
+// Return the real drawable/output size backing the SDL window.
+//
+UBOOL UNSDLViewport::GetOutputSize( INT& OutX, INT& OutY )
+{
+	guard(UNSDLViewport::GetOutputSize);
+
+	OutX = 0;
+	OutY = 0;
+	if( !hWnd )
+		return 0;
+
+	if( GLCtx )
+	{
+		SDL_GL_MakeCurrent( hWnd, GLCtx );
+		SDL_GL_GetDrawableSize( hWnd, &OutX, &OutY );
+	}
+	if( (OutX <= 0 || OutY <= 0) && SDLRen )
+	{
+		SDL_GetRendererOutputSize( SDLRen, &OutX, &OutY );
+	}
+	if( OutX <= 0 || OutY <= 0 )
+	{
+		SDL_GetWindowSize( hWnd, &OutX, &OutY );
+	}
+
+	if( OutX <= 0 || OutY <= 0 )
+		return 0;
+	OutX = Align( OutX, 4 );
+	return 1;
+
+	unguard;
+}
+
+//
 // Update user viewport interface.
 //
 void UNSDLViewport::UpdateWindowFrame()
@@ -451,6 +485,23 @@ void UNSDLViewport::OpenWindow( DWORD InParentWindow, UBOOL Temporary, INT NewX,
 		SDL_ShowWindow( hWnd );
 		debugf( NAME_Log, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE SDL_ShowWindow done") );
 
+		INT OutputX = 0, OutputY = 0;
+		if( GetOutputSize( OutputX, OutputY ) && (OutputX != NewX || OutputY != NewY) )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V204_VIEWPORT_OUTPUT_SIZE requested=%ix%i output=%ix%i"), NewX, NewY, OutputX, OutputY );
+			NewX = OutputX;
+			NewY = OutputY;
+			if( SDLRen && SDLTex )
+			{
+				SDL_DestroyTexture( SDLTex );
+				SDLTex = SDL_CreateTexture( SDLRen, SDLTexFormat, SDL_TEXTUREACCESS_STREAMING, NewX, NewY );
+				if( !SDLTex )
+				{
+					appErrorf( "Could not create framebuffer texture: %s", SDL_GetError() );
+				}
+			}
+		}
+
 		// Get this window's display parameters.
 		SDL_DisplayMode DisplayMode;
 		DisplayIndex = SDL_GetWindowDisplayIndex( hWnd );
@@ -527,6 +578,7 @@ UBOOL UNSDLViewport::Lock( FPlane FlashScale, FPlane FlashFog, FPlane ScreenClea
 {
 	guard(UNSDLViewport::LockWindow);
 	static INT LockTraceCount = 0;
+	static INT OutputSyncTraceCount = 0;
 	clock(Client->DrawCycles);
 
 	// Make sure window is lockable.
@@ -539,6 +591,27 @@ UBOOL UNSDLViewport::Lock( FPlane FlashScale, FPlane FlashFog, FPlane ScreenClea
 	{
 		appErrorf( "Failed locking viewport" );
 		return 0;
+	}
+
+	INT OutputX = 0, OutputY = 0;
+	if( GetOutputSize( OutputX, OutputY ) )
+	{
+		if( OutputX != SizeX || OutputY != SizeY )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V206_VIEWPORT_LOCK_RESYNC old=%ix%i output=%ix%i"), SizeX, SizeY, OutputX, OutputY );
+			SetClientSize( OutputX, OutputY, false );
+		}
+		else if( OutputSyncTraceCount < 12 || (OutputSyncTraceCount % 60) == 0 )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V206_VIEWPORT_LOCK_SIZE engine=%ix%i output=%ix%i gl=%i sdl=%i"),
+				SizeX,
+				SizeY,
+				OutputX,
+				OutputY,
+				GLCtx != NULL,
+				SDLRen != NULL );
+		}
+		OutputSyncTraceCount++;
 	}
 
 	if( SDLRen && SDLTex )
@@ -740,6 +813,16 @@ void UNSDLViewport::SetClientSize( INT NewX, INT NewY, UBOOL UpdateProfile )
 	if( hWnd )
 	{
 		SDL_SetWindowSize( hWnd, NewX, NewY );
+
+		INT OutputX = 0, OutputY = 0;
+		if( GetOutputSize( OutputX, OutputY ) )
+		{
+			if( OutputX != NewX || OutputY != NewY )
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V204_VIEWPORT_RESIZE_OUTPUT requested=%ix%i output=%ix%i"), NewX, NewY, OutputX, OutputY );
+			NewX = OutputX;
+			NewY = OutputY;
+		}
+
 		// Resize output texture if required.
 		if( SDLRen && SDLTex )
 		{
@@ -752,8 +835,12 @@ void UNSDLViewport::SetClientSize( INT NewX, INT NewY, UBOOL UpdateProfile )
 		}
 	}
 
+	const UBOOL Changed = (SizeX != NewX || SizeY != NewY);
 	SizeX = NewX;
 	SizeY = NewY;
+
+	if( Changed && RenDev )
+		RenDev->SetRes( SizeX, SizeY, ColorBytes, IsFullscreen() );
 
 	// Optionally save this size in the profile.
 	if( UpdateProfile )
@@ -885,6 +972,22 @@ UBOOL UNSDLViewport::TickInput()
 				// signal to client and remember set a flag just in case
 				QuitRequested = true;
 				return true;
+			case SDL_WINDOWEVENT:
+				if( hWnd && Ev.window.windowID == SDL_GetWindowID( hWnd ) )
+				{
+					if( Ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED || Ev.window.event == SDL_WINDOWEVENT_RESIZED )
+					{
+						INT OldX = SizeX;
+						INT OldY = SizeY;
+						SetClientSize( Ev.window.data1, Ev.window.data2, false );
+						if( SizeX != OldX || SizeY != OldY )
+						{
+							debugf( NAME_Log, TEXT("UT99_ANDROID_V204_WINDOWEVENT_SIZE event=%i data=%ix%i applied=%ix%i"), Ev.window.event, Ev.window.data1, Ev.window.data2, SizeX, SizeY );
+							Repaint( 1 );
+						}
+					}
+				}
+				break;
 			case SDL_TEXTINPUT:
 				for( const char *p = Ev.text.text; *p && p < Ev.text.text + sizeof( Ev.text.text ); ++p )
 				{

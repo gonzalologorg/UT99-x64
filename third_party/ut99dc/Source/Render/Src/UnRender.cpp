@@ -2408,7 +2408,7 @@ void URender::OccludeBsp( FSceneNode* Frame )
 						Node->iSurf,
 						Poly->Texture->GetFullName(),
 						Poly->Texture->Palette );
-					Poly->Texture = NULL;
+					Poly->Texture->Palette = NULL;
 				}
 #endif
 

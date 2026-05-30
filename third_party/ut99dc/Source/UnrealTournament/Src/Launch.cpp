@@ -10,6 +10,18 @@ Revision history:
 #ifdef PLATFORM_SDL
 #include <SDL2/SDL.h>
 #endif
+
+#if PLATFORM_ANDROID
+extern "C" { extern BYTE GLoadedAudio; }
+extern UClass* autoclassUGenericAudioSubsystem;
+static void ForceAndroidAudioPackageLink()
+{
+	volatile BYTE* LoadedAudio = &GLoadedAudio;
+	UClass* volatile* GenericAudioClass = &autoclassUGenericAudioSubsystem;
+	(void)LoadedAudio;
+	(void)GenericAudioClass;
+}
+#endif
 /*-----------------------------------------------------------------------------
 	Global variables.
 -----------------------------------------------------------------------------*/
@@ -295,6 +307,9 @@ int CleanUpOnExit(int ErrorLevel)
 //
 int main( int argc, char* argv[] )
 {
+#if PLATFORM_ANDROID
+	ForceAndroidAudioPackageLink();
+#endif
 #ifdef PLATFORM_DREAMCAST
 	// fix thread stack underrun
 	init_thread_stack();

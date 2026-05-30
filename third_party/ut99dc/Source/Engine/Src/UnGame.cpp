@@ -77,6 +77,8 @@ static UProperty* FindNativeProperty( UClass* Class, const TCHAR* Name )
 	unguard;
 }
 
+static void FixupNativeBoolBlockOffset( UClass* Class, const TCHAR* Label, const TCHAR** Names, INT Count, INT Offset );
+
 static void FixupNativePropertyOffset( UClass* Class, const TCHAR* Name, INT Offset )
 {
 	guard(FixupNativePropertyOffset);
@@ -96,6 +98,125 @@ static void FixupNativePropertyOffset( UClass* Class, const TCHAR* Name, INT Off
 		}
 	}
 	debugf( NAME_Warning, TEXT("UT99_ANDROID_V177_NATIVE_OFFSET_MISSING class=%s property=%s native=%i"), Class->GetFullName(), Name, Offset );
+	unguard;
+}
+
+static void FixupNativeStructMemberOffset( UStruct* Struct, const TCHAR* Name, INT Offset )
+{
+	guard(FixupNativeStructMemberOffset);
+	if( !Struct )
+		return;
+	for( TFieldIterator<UProperty> It(Struct); It; ++It )
+	{
+		if( appStricmp( It->GetName(), Name )==0 )
+		{
+			if( It->Offset != Offset )
+			{
+				debugf( NAME_Warning, TEXT("UT99_ANDROID_V204_STRUCT_OFFSET_FIX struct=%s property=%s script=%i native=%i"),
+					Struct->GetFullName(),
+					Name,
+					It->Offset,
+					Offset );
+				It->Offset = Offset;
+			}
+			return;
+		}
+	}
+	debugf( NAME_Warning, TEXT("UT99_ANDROID_V204_STRUCT_OFFSET_MISSING struct=%s property=%s native=%i"),
+		Struct->GetFullName(),
+		Name,
+		Offset );
+	unguard;
+}
+
+static void FixupPointRegionStruct()
+{
+	guard(FixupPointRegionStruct);
+	UProperty* RegionProperty = FindNativeProperty( AActor::StaticClass(), TEXT("Region") );
+	UStructProperty* StructProperty = Cast<UStructProperty>( RegionProperty );
+	UStruct* PointRegionStruct = StructProperty ? StructProperty->Struct : NULL;
+	if( !PointRegionStruct )
+		return;
+	if( PointRegionStruct->GetPropertiesSize() != sizeof(FPointRegion) )
+	{
+		debugf( NAME_Warning, TEXT("UT99_ANDROID_V204_STRUCT_SIZE_FIX struct=%s script=%i native=%i"),
+			PointRegionStruct->GetFullName(),
+			PointRegionStruct->GetPropertiesSize(),
+			sizeof(FPointRegion) );
+		PointRegionStruct->SetPropertiesSize( sizeof(FPointRegion) );
+	}
+	FixupNativeStructMemberOffset( PointRegionStruct, TEXT("Zone"),       STRUCT_OFFSET(FPointRegion,Zone) );
+	FixupNativeStructMemberOffset( PointRegionStruct, TEXT("iLeaf"),      STRUCT_OFFSET(FPointRegion,iLeaf) );
+	FixupNativeStructMemberOffset( PointRegionStruct, TEXT("ZoneNumber"), STRUCT_OFFSET(FPointRegion,ZoneNumber) );
+	for( TObjectIterator<UStructProperty> It; It; ++It )
+	{
+		if( It->Struct == PointRegionStruct && It->ElementSize != sizeof(FPointRegion) )
+		{
+			debugf( NAME_Warning, TEXT("UT99_ANDROID_V204_STRUCT_PROPERTY_SIZE_FIX property=%s script=%i native=%i"),
+				It->GetFullName(),
+				It->ElementSize,
+				sizeof(FPointRegion) );
+			It->ElementSize = sizeof(FPointRegion);
+		}
+	}
+	unguard;
+}
+
+static void FixupBitmapTextureOffsets()
+{
+	guard(FixupBitmapTextureOffsets);
+	FixupNativePropertyOffset( UBitmap::StaticClass(), TEXT("Format"), STRUCT_OFFSET(UBitmap,Format) );
+	FixupNativePropertyOffset( UBitmap::StaticClass(), TEXT("Palette"), STRUCT_OFFSET(UBitmap,Palette) );
+	FixupNativePropertyOffset( UBitmap::StaticClass(), TEXT("UBits"), STRUCT_OFFSET(UBitmap,UBits) );
+	FixupNativePropertyOffset( UBitmap::StaticClass(), TEXT("VBits"), STRUCT_OFFSET(UBitmap,VBits) );
+	FixupNativePropertyOffset( UBitmap::StaticClass(), TEXT("USize"), STRUCT_OFFSET(UBitmap,USize) );
+	FixupNativePropertyOffset( UBitmap::StaticClass(), TEXT("VSize"), STRUCT_OFFSET(UBitmap,VSize) );
+	FixupNativePropertyOffset( UBitmap::StaticClass(), TEXT("UClamp"), STRUCT_OFFSET(UBitmap,UClamp) );
+	FixupNativePropertyOffset( UBitmap::StaticClass(), TEXT("VClamp"), STRUCT_OFFSET(UBitmap,VClamp) );
+	FixupNativePropertyOffset( UBitmap::StaticClass(), TEXT("MipZero"), STRUCT_OFFSET(UBitmap,MipZero) );
+
+	FixupNativePropertyOffset( UTexture::StaticClass(), TEXT("BumpMap"), STRUCT_OFFSET(UTexture,BumpMap) );
+	FixupNativePropertyOffset( UTexture::StaticClass(), TEXT("DetailTexture"), STRUCT_OFFSET(UTexture,DetailTexture) );
+	FixupNativePropertyOffset( UTexture::StaticClass(), TEXT("MacroTexture"), STRUCT_OFFSET(UTexture,MacroTexture) );
+	FixupNativePropertyOffset( UTexture::StaticClass(), TEXT("Diffuse"), STRUCT_OFFSET(UTexture,Diffuse) );
+	FixupNativePropertyOffset( UTexture::StaticClass(), TEXT("Specular"), STRUCT_OFFSET(UTexture,Specular) );
+	FixupNativePropertyOffset( UTexture::StaticClass(), TEXT("Alpha"), STRUCT_OFFSET(UTexture,Alpha) );
+	FixupNativePropertyOffset( UTexture::StaticClass(), TEXT("Scale"), STRUCT_OFFSET(UTexture,Scale) );
+	FixupNativePropertyOffset( UTexture::StaticClass(), TEXT("Friction"), STRUCT_OFFSET(UTexture,Friction) );
+	FixupNativePropertyOffset( UTexture::StaticClass(), TEXT("MipMult"), STRUCT_OFFSET(UTexture,MipMult) );
+	FixupNativePropertyOffset( UTexture::StaticClass(), TEXT("FootstepSound"), STRUCT_OFFSET(UTexture,FootstepSound) );
+	FixupNativePropertyOffset( UTexture::StaticClass(), TEXT("HitSound"), STRUCT_OFFSET(UTexture,HitSound) );
+	FixupNativePropertyOffset( UTexture::StaticClass(), TEXT("PolyFlags"), STRUCT_OFFSET(UTexture,PolyFlags) );
+	const INT TextureBoolOffset = STRUCT_OFFSET(UTexture,LODSet) - sizeof(BITFIELD);
+	static const TCHAR* TextureBools[] =
+	{
+		TEXT("bHighColorQuality"), TEXT("bHighTextureQuality"), TEXT("bRealtime"),
+		TEXT("bParametric"), TEXT("bRealtimeChanged"), TEXT("bHasComp")
+	};
+	FixupNativeBoolBlockOffset( UTexture::StaticClass(), TEXT("TextureFlags"), TextureBools, ARRAY_COUNT(TextureBools), TextureBoolOffset );
+	FixupNativePropertyOffset( UTexture::StaticClass(), TEXT("LODSet"), STRUCT_OFFSET(UTexture,LODSet) );
+	FixupNativePropertyOffset( UTexture::StaticClass(), TEXT("AnimNext"), STRUCT_OFFSET(UTexture,AnimNext) );
+	FixupNativePropertyOffset( UTexture::StaticClass(), TEXT("AnimCur"), STRUCT_OFFSET(UTexture,AnimCur) );
+	unguard;
+}
+
+static void FixupPlayerOffsets()
+{
+	guard(FixupPlayerOffsets);
+	FixupNativePropertyOffset( UPlayer::StaticClass(), TEXT("Actor"), STRUCT_OFFSET(UPlayer,Actor) );
+	FixupNativePropertyOffset( UPlayer::StaticClass(), TEXT("Console"), STRUCT_OFFSET(UPlayer,Console) );
+	FixupNativePropertyOffset( UPlayer::StaticClass(), TEXT("WindowsMouseX"), STRUCT_OFFSET(UPlayer,WindowsMouseX) );
+	FixupNativePropertyOffset( UPlayer::StaticClass(), TEXT("WindowsMouseY"), STRUCT_OFFSET(UPlayer,WindowsMouseY) );
+	FixupNativePropertyOffset( UPlayer::StaticClass(), TEXT("CurrentNetSpeed"), STRUCT_OFFSET(UPlayer,CurrentNetSpeed) );
+	FixupNativePropertyOffset( UPlayer::StaticClass(), TEXT("ConfiguredInternetSpeed"), STRUCT_OFFSET(UPlayer,ConfiguredInternetSpeed) );
+	FixupNativePropertyOffset( UPlayer::StaticClass(), TEXT("ConfiguredLanSpeed"), STRUCT_OFFSET(UPlayer,ConfiguredLanSpeed) );
+	FixupNativePropertyOffset( UPlayer::StaticClass(), TEXT("SelectedCursor"), STRUCT_OFFSET(UPlayer,SelectedCursor) );
+	const INT BoolOffset = STRUCT_OFFSET(UPlayer,WindowsMouseX) - sizeof(BITFIELD);
+	static const TCHAR* PlayerBools[] =
+	{
+		TEXT("bWindowsMouseAvailable"), TEXT("bShowWindowsMouse"), TEXT("bSuspendPrecaching")
+	};
+	FixupNativeBoolBlockOffset( UPlayer::StaticClass(), TEXT("PlayerMouse"), PlayerBools, ARRAY_COUNT(PlayerBools), BoolOffset );
 	unguard;
 }
 
@@ -144,6 +265,19 @@ static void FixupCriticalNativeOffsets()
 	FixupNativePropertyOffset( AActor::StaticClass(), TEXT("Owner"), STRUCT_OFFSET(AActor,Owner) );
 	FixupNativePropertyOffset( AActor::StaticClass(), TEXT("Instigator"), STRUCT_OFFSET(AActor,Instigator) );
 	FixupNativePropertyOffset( AActor::StaticClass(), TEXT("Base"), STRUCT_OFFSET(AActor,Base) );
+	FixupBitmapTextureOffsets();
+	FixupPlayerOffsets();
+	FixupNativePropertyOffset( AActor::StaticClass(), TEXT("Region"), STRUCT_OFFSET(AActor,Region) );
+	FixupPointRegionStruct();
+	FixupNativePropertyOffset( APawn::StaticClass(), TEXT("FootRegion"), STRUCT_OFFSET(APawn,FootRegion) );
+	FixupNativePropertyOffset( APawn::StaticClass(), TEXT("HeadRegion"), STRUCT_OFFSET(APawn,HeadRegion) );
+	FixupNativePropertyOffset( APawn::StaticClass(), TEXT("MoveTarget"), STRUCT_OFFSET(APawn,MoveTarget) );
+	FixupNativePropertyOffset( APawn::StaticClass(), TEXT("FaceTarget"), STRUCT_OFFSET(APawn,FaceTarget) );
+	FixupNativePropertyOffset( APawn::StaticClass(), TEXT("Enemy"), STRUCT_OFFSET(APawn,Enemy) );
+	FixupNativePropertyOffset( APawn::StaticClass(), TEXT("Weapon"), STRUCT_OFFSET(APawn,Weapon) );
+	FixupNativePropertyOffset( APawn::StaticClass(), TEXT("PendingWeapon"), STRUCT_OFFSET(APawn,PendingWeapon) );
+	FixupNativePropertyOffset( APawn::StaticClass(), TEXT("SelectedItem"), STRUCT_OFFSET(APawn,SelectedItem) );
+	FixupNativePropertyOffset( APawn::StaticClass(), TEXT("PlayerReplicationInfo"), STRUCT_OFFSET(APawn,PlayerReplicationInfo) );
 	static const TCHAR* ActorCoreBools[] =
 	{
 		TEXT("bStatic"), TEXT("bHidden"), TEXT("bNoDelete"), TEXT("bAnimFinished"), TEXT("bAnimLoop"), TEXT("bAnimNotify"),
@@ -183,6 +317,24 @@ static void FixupCriticalNativeOffsets()
 	FixupNativeBoolBlockOffset( AActor::StaticClass(), TEXT("ActorRelevancy"), ActorRelevancyBools, ARRAY_COUNT(ActorRelevancyBools), STRUCT_OFFSET(AActor,MultiSkins)-sizeof(BITFIELD) );
 	FixupNativeBoolBlockOffset( AActor::StaticClass(), TEXT("ActorCollision"), ActorCollisionBools, ARRAY_COUNT(ActorCollisionBools), STRUCT_OFFSET(AActor,LightType)-sizeof(BITFIELD) );
 	FixupNativeBoolBlockOffset( AActor::StaticClass(), TEXT("ActorLighting"), ActorLightingBools, ARRAY_COUNT(ActorLightingBools), STRUCT_OFFSET(AActor,DodgeDir)-sizeof(BITFIELD) );
+	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("TimeDilation"), STRUCT_OFFSET(ALevelInfo,TimeDilation) );
+	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("TimeSeconds"), STRUCT_OFFSET(ALevelInfo,TimeSeconds) );
+	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("Year"), STRUCT_OFFSET(ALevelInfo,Year) );
+	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("Month"), STRUCT_OFFSET(ALevelInfo,Month) );
+	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("Day"), STRUCT_OFFSET(ALevelInfo,Day) );
+	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("DayOfWeek"), STRUCT_OFFSET(ALevelInfo,DayOfWeek) );
+	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("Hour"), STRUCT_OFFSET(ALevelInfo,Hour) );
+	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("Minute"), STRUCT_OFFSET(ALevelInfo,Minute) );
+	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("Second"), STRUCT_OFFSET(ALevelInfo,Second) );
+	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("Millisecond"), STRUCT_OFFSET(ALevelInfo,Millisecond) );
+	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("Title"), STRUCT_OFFSET(ALevelInfo,Title) );
+	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("Author"), STRUCT_OFFSET(ALevelInfo,Author) );
+	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("IdealPlayerCount"), STRUCT_OFFSET(ALevelInfo,IdealPlayerCount) );
+	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("RecommendedEnemies"), STRUCT_OFFSET(ALevelInfo,RecommendedEnemies) );
+	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("RecommendedTeammates"), STRUCT_OFFSET(ALevelInfo,RecommendedTeammates) );
+	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("LevelEnterText"), STRUCT_OFFSET(ALevelInfo,LevelEnterText) );
+	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("LocalizedPkg"), STRUCT_OFFSET(ALevelInfo,LocalizedPkg) );
+	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("Pauser"), STRUCT_OFFSET(ALevelInfo,Pauser) );
 	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("Summary"), STRUCT_OFFSET(ALevelInfo,Summary) );
 	static const TCHAR* LevelInfoPlayBools[] =
 	{
@@ -203,9 +355,13 @@ static void FixupCriticalNativeOffsets()
 	FixupNativeBoolBlockOffset( ALevelInfo::StaticClass(), TEXT("LevelInfoRender"), LevelInfoRenderBools, ARRAY_COUNT(LevelInfoRenderBools), STRUCT_OFFSET(ALevelInfo,NetMode)-sizeof(BITFIELD) );
 	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("Game"), STRUCT_OFFSET(ALevelInfo,Game) );
 	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("NetMode"), STRUCT_OFFSET(ALevelInfo,NetMode) );
+	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("ComputerName"), STRUCT_OFFSET(ALevelInfo,ComputerName) );
+	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("EngineVersion"), STRUCT_OFFSET(ALevelInfo,EngineVersion) );
+	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("MinNetVersion"), STRUCT_OFFSET(ALevelInfo,MinNetVersion) );
 	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("DefaultGameType"), STRUCT_OFFSET(ALevelInfo,DefaultGameType) );
 	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("NavigationPointList"), STRUCT_OFFSET(ALevelInfo,NavigationPointList) );
 	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("PawnList"), STRUCT_OFFSET(ALevelInfo,PawnList) );
+	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("NextURL"), STRUCT_OFFSET(ALevelInfo,NextURL) );
 	static const TCHAR* LevelInfoServerBools[] = { TEXT("bNextItems") };
 	FixupNativeBoolBlockOffset( ALevelInfo::StaticClass(), TEXT("LevelInfoServer"), LevelInfoServerBools, ARRAY_COUNT(LevelInfoServerBools), STRUCT_OFFSET(ALevelInfo,NextSwitchCountdown)-sizeof(BITFIELD) );
 	FixupNativePropertyOffset( ALevelInfo::StaticClass(), TEXT("NextSwitchCountdown"), STRUCT_OFFSET(ALevelInfo,NextSwitchCountdown) );
@@ -1034,7 +1190,18 @@ ULevel* UGameEngine::LoadMap( const FURL& URL, UPendingLevel* Pending, const TMa
 	FixupNativePropertyOffset( AActor::StaticClass(), TEXT("Instigator"), STRUCT_OFFSET(AActor,Instigator) );
 	FixupNativePropertyOffset( AActor::StaticClass(), TEXT("Inventory"), STRUCT_OFFSET(AActor,Inventory) );
 	FixupNativePropertyOffset( AActor::StaticClass(), TEXT("Base"), STRUCT_OFFSET(AActor,Base) );
+	FixupPlayerOffsets();
 	FixupNativePropertyOffset( AActor::StaticClass(), TEXT("Region"), STRUCT_OFFSET(AActor,Region) );
+	FixupPointRegionStruct();
+	FixupNativePropertyOffset( APawn::StaticClass(), TEXT("FootRegion"), STRUCT_OFFSET(APawn,FootRegion) );
+	FixupNativePropertyOffset( APawn::StaticClass(), TEXT("HeadRegion"), STRUCT_OFFSET(APawn,HeadRegion) );
+	FixupNativePropertyOffset( APawn::StaticClass(), TEXT("MoveTarget"), STRUCT_OFFSET(APawn,MoveTarget) );
+	FixupNativePropertyOffset( APawn::StaticClass(), TEXT("FaceTarget"), STRUCT_OFFSET(APawn,FaceTarget) );
+	FixupNativePropertyOffset( APawn::StaticClass(), TEXT("Enemy"), STRUCT_OFFSET(APawn,Enemy) );
+	FixupNativePropertyOffset( APawn::StaticClass(), TEXT("Weapon"), STRUCT_OFFSET(APawn,Weapon) );
+	FixupNativePropertyOffset( APawn::StaticClass(), TEXT("PendingWeapon"), STRUCT_OFFSET(APawn,PendingWeapon) );
+	FixupNativePropertyOffset( APawn::StaticClass(), TEXT("SelectedItem"), STRUCT_OFFSET(APawn,SelectedItem) );
+	FixupNativePropertyOffset( APawn::StaticClass(), TEXT("PlayerReplicationInfo"), STRUCT_OFFSET(APawn,PlayerReplicationInfo) );
 	FixupNativePropertyOffset( AActor::StaticClass(), TEXT("Location"), STRUCT_OFFSET(AActor,Location) );
 	FixupNativePropertyOffset( AActor::StaticClass(), TEXT("Rotation"), STRUCT_OFFSET(AActor,Rotation) );
 	FixupNativePropertyOffset( AActor::StaticClass(), TEXT("DrawType"), STRUCT_OFFSET(AActor,DrawType) );

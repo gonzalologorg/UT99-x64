@@ -259,6 +259,7 @@ void UNOpenGLESRenderDevice::Lock( FPlane FlashScale, FPlane FlashFog, FPlane Sc
 	GAndroidGLESTileCount = 0;
 	if( Viewport )
 		glViewport( 0, 0, Viewport->SizeX, Viewport->SizeY );
+	glDisable( GL_SCISSOR_TEST );
 
 	glClearColor( ScreenClear.X, ScreenClear.Y, ScreenClear.Z, ScreenClear.W );
 	glClearDepthf( 1.f );
@@ -284,12 +285,20 @@ void UNOpenGLESRenderDevice::Lock( FPlane FlashScale, FPlane FlashFog, FPlane Sc
 		ClearBits |= GL_COLOR_BUFFER_BIT;
 	glClear( ClearBits );
 	if( GAndroidGLESFrameCounter <= 12 || (GAndroidGLESFrameCounter % 60) == 0 )
-		debugf( NAME_Log, TEXT("UT99_ANDROID_V189_GLES_LOCK frame=%i size=%ix%i clear=0x%08x glerr=0x%04x"),
+	{
+		GLint GLViewport[4] = {0,0,0,0};
+		glGetIntegerv( GL_VIEWPORT, GLViewport );
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V189_GLES_LOCK frame=%i size=%ix%i glViewport=%i,%i,%i,%i clear=0x%08x glerr=0x%04x"),
 			GAndroidGLESFrameCounter,
 			Viewport ? Viewport->SizeX : 0,
 			Viewport ? Viewport->SizeY : 0,
+			GLViewport[0],
+			GLViewport[1],
+			GLViewport[2],
+			GLViewport[3],
 			(DWORD)ClearBits,
 			(DWORD)glGetError() );
+	}
 
 	if( FlashScale != FPlane(0.5f, 0.5f, 0.5f, 0.0f) || FlashFog != FPlane(0.0f, 0.0f, 0.0f, 0.0f) )
 		ColorMod = FPlane( FlashFog.X, FlashFog.Y, FlashFog.Z, 1.f - Min( FlashScale.X * 2.f, 1.f ) );
@@ -359,6 +368,14 @@ void UNOpenGLESRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo
 #if PLATFORM_ANDROID
 	debugf( NAME_Log, TEXT("UT99_ANDROID_V199_DRAWCOMPLEX stage=after_tex0 surface=%i"), GAndroidGLESSurfaceCount );
 #endif
+	if( !(CurrentShaderFlags & SF_Texture0) )
+	{
+		debugf( NAME_Warning, TEXT("UT99_ANDROID_V202_SKIP_UNTEXTURED_SURFACE surface=%i cache=0x%08x%08x"),
+			GAndroidGLESSurfaceCount,
+			(DWORD)(Surface.Texture->CacheID >> 32),
+			(DWORD)Surface.Texture->CacheID );
+		return;
+	}
 	if( Surface.LightMap )
 	{
 #if PLATFORM_ANDROID
@@ -440,6 +457,14 @@ void UNOpenGLESRenderDevice::DrawGouraudPolygon( FSceneNode* Frame, FTextureInfo
 	SetSceneNode( Frame );
 	SetBlend( PolyFlags );
 	SetTexture( 0, Texture, ( PolyFlags & PF_Masked ), 0 );
+	if( !(CurrentShaderFlags & SF_Texture0) )
+	{
+		debugf( NAME_Warning, TEXT("UT99_ANDROID_V202_SKIP_UNTEXTURED_POLY cache=0x%08x%08x"),
+			(DWORD)(Texture.CacheID >> 32),
+			(DWORD)Texture.CacheID );
+		CurrentShaderFlags &= ~( SF_VtxColor|SF_VtxFog );
+		return;
+	}
 	SetShader( CurrentShaderFlags );
 
 	BeginPoly();
@@ -487,6 +512,16 @@ void UNOpenGLESRenderDevice::DrawTile( FSceneNode* Frame, FTextureInfo& Texture,
 	SetSceneNode( Frame );
 	SetBlend( PolyFlags );
 	SetTexture( 0, Texture, ( PolyFlags & PF_Masked ), 0.f );
+	if( !(CurrentShaderFlags & SF_Texture0) )
+	{
+		debugf( NAME_Warning, TEXT("UT99_ANDROID_V202_SKIP_UNTEXTURED_TILE cache=0x%08x%08x size=%ix%i"),
+			(DWORD)(Texture.CacheID >> 32),
+			(DWORD)Texture.CacheID,
+			Texture.USize,
+			Texture.VSize );
+		CurrentShaderFlags &= ~SF_VtxColor;
+		return;
+	}
 	SetShader( CurrentShaderFlags );
 
 	BeginPoly();

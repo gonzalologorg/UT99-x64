@@ -449,6 +449,31 @@ IMPLEMENT_FUNCTION( AActor, EPOLL_FinishInterpolation, execPollFinishInterpolati
 // Animation functions //
 /////////////////////////
 
+static const TCHAR* SafeScriptNameString( FName Name )
+{
+	return Name.IsValid() ? *Name : TEXT("InvalidName");
+}
+
+static UBOOL IsKnownMeshPointer( UMesh* Mesh )
+{
+	if( !Mesh )
+		return 0;
+	for( TObjectIterator<UMesh> It; It; ++It )
+		if( *It==Mesh )
+			return 1;
+	return 0;
+}
+
+static UBOOL IsKnownActorPointer( AActor* Actor )
+{
+	if( !Actor )
+		return 0;
+	for( TObjectIterator<AActor> It; It; ++It )
+		if( *It==Actor )
+			return 1;
+	return 0;
+}
+
 void AActor::execPlayAnim( FFrame& Stack, RESULT_DECL )
 {
 	guardSlow(AActor::execPlayAnim);
@@ -459,10 +484,10 @@ void AActor::execPlayAnim( FFrame& Stack, RESULT_DECL )
 	P_FINISH;
 
 	// Set one-shot animation.
-	if( Mesh )
+	if( Mesh && IsKnownMeshPointer( Mesh ) )
 	{
 		const FMeshAnimSeq* Seq = Mesh->GetAnimSeq( SequenceName );
-		if( Seq )
+		if( Seq && Seq->NumFrames>0 )
 		{
 			if( AnimSequence == NAME_None )
 				TweenTime = 0.0;
@@ -524,7 +549,7 @@ void AActor::execPlayAnim( FFrame& Stack, RESULT_DECL )
 			OldAnimRate = AnimRate;
 			//debugf("%s PlayAnim %f %f %f %f", GetName(), SimAnim.X, SimAnim.Y, SimAnim.Z, SimAnim.W);
 		}
-		else Stack.Logf( TEXT("PlayAnim: Sequence '%s' not found in Mesh '%s'"), *SequenceName, Mesh->GetName() );
+		else Stack.Logf( TEXT("PlayAnim: Sequence '%s' not found in Mesh '%s'"), SafeScriptNameString( SequenceName ), Mesh->GetName() );
 	} else Stack.Logf( TEXT("PlayAnim: No mesh") );
 	unguardexecSlow;
 }
@@ -540,10 +565,10 @@ void AActor::execLoopAnim( FFrame& Stack, RESULT_DECL )
 	P_FINISH;
 
 	// Set looping animation.
-	if( Mesh )
+	if( Mesh && IsKnownMeshPointer( Mesh ) )
 	{
 		const FMeshAnimSeq* Seq = Mesh->GetAnimSeq( SequenceName );
-		if( Seq )
+		if( Seq && Seq->NumFrames>0 )
 		{
 			if ( (AnimSequence == SequenceName) && bAnimLoop && IsAnimating() )
 			{
@@ -608,7 +633,7 @@ void AActor::execLoopAnim( FFrame& Stack, RESULT_DECL )
 			SimAnim.W = -10000 * AnimLast;
 			//debugf("%s LoopAnim %f %f %f %f", GetName(), SimAnim.X, SimAnim.Y, SimAnim.Z, SimAnim.W);
 		}
-		else Stack.Logf( TEXT("LoopAnim: Sequence '%s' not found in Mesh '%s'"), *SequenceName, Mesh->GetName() );
+		else Stack.Logf( TEXT("LoopAnim: Sequence '%s' not found in Mesh '%s'"), SafeScriptNameString( SequenceName ), Mesh->GetName() );
 	} else Stack.Logf( TEXT("LoopAnim: No mesh") );
 	unguardexecSlow;
 }
@@ -622,10 +647,10 @@ void AActor::execTweenAnim( FFrame& Stack, RESULT_DECL )
 	P_FINISH;
 
 	// Tweening an animation from wherever it is, to the start of a specified sequence.
-	if( Mesh )
+	if( Mesh && IsKnownMeshPointer( Mesh ) )
 	{
 		const FMeshAnimSeq* Seq = Mesh->GetAnimSeq( SequenceName );
-		if( Seq )
+		if( Seq && Seq->NumFrames>0 )
 		{
 			AnimSequence  = SequenceName;
 			AnimLast      = 0.0;
@@ -653,7 +678,7 @@ void AActor::execTweenAnim( FFrame& Stack, RESULT_DECL )
 			SimAnim.W = 10000 * AnimLast;
 			//debugf("%s TweenAnim %f %f %f %f", GetName(), SimAnim.X, SimAnim.Y, SimAnim.Z, SimAnim.W);
 		}
-		else Stack.Logf( TEXT("TweenAnim: Sequence '%s' not found in Mesh '%s'"), *SequenceName, Mesh->GetName() );
+		else Stack.Logf( TEXT("TweenAnim: Sequence '%s' not found in Mesh '%s'"), SafeScriptNameString( SequenceName ), Mesh->GetName() );
 	} else Stack.Logf( TEXT("TweenAnim: No mesh") );
 	unguardexecSlow;
 }
@@ -678,14 +703,14 @@ void AActor::execGetAnimGroup( FFrame& Stack, RESULT_DECL )
 
 	// Return the animation group.
 	*(FName*)Result = NAME_None;
-	if( Mesh )
+	if( Mesh && IsKnownMeshPointer( Mesh ) )
 	{
 		const FMeshAnimSeq* Seq = Mesh->GetAnimSeq( SequenceName );
 		if( Seq )
 		{
 			*(FName*)Result = Seq->Group;
 		}
-		else Stack.Logf( TEXT("GetAnimGroup: Sequence '%s' not found in Mesh '%s'"), *SequenceName, Mesh->GetName() );
+		else Stack.Logf( TEXT("GetAnimGroup: Sequence '%s' not found in Mesh '%s'"), SafeScriptNameString( SequenceName ), Mesh->GetName() );
 	} else Stack.Logf( TEXT("GetAnimGroup: No mesh") );
 
 	unguardexecSlow;
@@ -699,7 +724,7 @@ void AActor::execHasAnim( FFrame& Stack, RESULT_DECL )
 	P_FINISH;
 
 	// Check for a certain anim sequence.
-	if( Mesh )
+	if( Mesh && IsKnownMeshPointer( Mesh ) )
 	{
 		const FMeshAnimSeq* Seq = Mesh->GetAnimSeq( SequenceName );
 		if( Seq )
@@ -764,8 +789,20 @@ void AActor::CheckHearSound(APawn* Hearer, INT Id, USound* Sound, FVector Parame
 {
 	guardSlow(AActor::CheckHearSound);
 
+	ULevel* SoundLevel = IsKnownActorPointer(this) ? GetLevel() : NULL;
+	if( !Sound || !Hearer || !IsKnownActorPointer(Hearer) || !IsKnownActorPointer(this) || !SoundLevel || !SoundLevel->Model )
+	{
+		debugf( NAME_Warning, TEXT("UT99_ANDROID_V205_BAD_HEAR_SOUND actor=%s hearer=%p sound=%p level=%p model=%p"),
+			IsKnownActorPointer(this) ? GetFullName() : TEXT("BadActor"),
+			Hearer,
+			Sound,
+			SoundLevel,
+			SoundLevel ? SoundLevel->Model : NULL );
+		return;
+	}
+
 	FVector HearSource;
-	if ( Hearer->IsA(APlayerPawn::StaticClass()) && ((APlayerPawn *)Hearer)->ViewTarget )
+	if ( Hearer->IsA(APlayerPawn::StaticClass()) && ((APlayerPawn *)Hearer)->ViewTarget && IsKnownActorPointer(((APlayerPawn *)Hearer)->ViewTarget) )
 		HearSource = ((APlayerPawn *)Hearer)->ViewTarget->Location;
 	else
 		HearSource = Hearer->Location;
@@ -817,7 +854,7 @@ void AActor::execDemoPlaySound( FFrame& Stack, RESULT_DECL )
 		for( INT i=0; i<Client->Viewports.Num(); i++ )
 		{
 			APlayerPawn* Hearer = Client->Viewports(i)->Actor;
-			if( Hearer && Hearer->GetLevel()==GetLevel() )
+			if( Hearer && IsKnownActorPointer(Hearer) && Hearer->GetLevel()==GetLevel() )
 				CheckHearSound(Hearer, Id, Sound, Parameters,RadiusSquared);
 		}
 	}
@@ -862,7 +899,7 @@ void AActor::execPlaySound( FFrame& Stack, RESULT_DECL )
 			for( INT i=0; i<Client->Viewports.Num(); i++ )
 			{
 				APlayerPawn* Hearer = Client->Viewports(i)->Actor;
-				if( Hearer && Hearer->GetLevel()==GetLevel() )
+				if( Hearer && IsKnownActorPointer(Hearer) && Hearer->GetLevel()==GetLevel() )
 					CheckHearSound(Hearer, Id, Sound, Parameters,RadiusSquared);
 			}
 		}
@@ -870,10 +907,17 @@ void AActor::execPlaySound( FFrame& Stack, RESULT_DECL )
 	else
 	{
 		// Propagate to all player actors.
-		for( APawn* Hearer=Level->PawnList; Hearer; Hearer=Hearer->nextPawn )
+		for( APawn* Hearer=Level->PawnList; Hearer; )
 		{
+			if( !IsKnownActorPointer(Hearer) )
+			{
+				debugf( NAME_Warning, TEXT("UT99_ANDROID_V205_BAD_PAWNLIST context=PlaySound actor=%s hearer=%p"), GetFullName(), Hearer );
+				break;
+			}
+			APawn* NextHearer = Hearer->nextPawn;
 			if( Hearer->bIsPlayer )
 				CheckHearSound(Hearer, Id, Sound, Parameters,RadiusSquared);
+			Hearer = NextHearer;
 		}
 	}
 	unguardexecSlow;
@@ -911,7 +955,7 @@ void AActor::execPlayOwnedSound( FFrame& Stack, RESULT_DECL )
 			for( INT i=0; i<Client->Viewports.Num(); i++ )
 			{
 				APlayerPawn* Hearer = Client->Viewports(i)->Actor;
-				if( Hearer && Hearer->GetLevel()==GetLevel() )
+				if( Hearer && IsKnownActorPointer(Hearer) && Hearer->GetLevel()==GetLevel() )
 					CheckHearSound(Hearer, Id, Sound, Parameters,RadiusSquared);
 			}
 		}
@@ -932,10 +976,17 @@ void AActor::execPlayOwnedSound( FFrame& Stack, RESULT_DECL )
 				RemoteOwner = Owner;
 		}
 
-		for( APawn* Hearer=Level->PawnList; Hearer; Hearer=Hearer->nextPawn )
+		for( APawn* Hearer=Level->PawnList; Hearer; )
 		{
+			if( !IsKnownActorPointer(Hearer) )
+			{
+				debugf( NAME_Warning, TEXT("UT99_ANDROID_V205_BAD_PAWNLIST context=PlayOwnedSound actor=%s hearer=%p"), GetFullName(), Hearer );
+				break;
+			}
+			APawn* NextHearer = Hearer->nextPawn;
 			if( Hearer->bIsPlayer && (Hearer != RemoteOwner) )
 				CheckHearSound(Hearer, Id, Sound, Parameters,RadiusSquared);
+			Hearer = NextHearer;
 		}
 	}
 	unguardexecSlow;

@@ -60,12 +60,32 @@ void UEngine::StaticConstructor()
 void UEngine::InitAudio()
 {
 	guard(UEngine::InitAudio);
+#if PLATFORM_ANDROID
+	if( !UseSound && GIsClient && !ParseParam(appCmdLine(),TEXT("NOSOUND")) )
+	{
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V208_FORCE_AUDIO_ENABLE previousUseSound=%i"), UseSound );
+		UseSound = 1;
+	}
+#endif
+	debugf( NAME_Init, TEXT("UT99_ANDROID_V207_INIT_AUDIO useSound=%i isClient=%i noSound=%i"), UseSound, GIsClient, ParseParam(appCmdLine(),TEXT("NOSOUND")) );
 	if
 	(	UseSound
 	&&	GIsClient
 	&&	!ParseParam(appCmdLine(),TEXT("NOSOUND")) )
 	{
+#if PLATFORM_ANDROID
+		UPackage* AudioPackage = UObject::CreatePackage( NULL, TEXT("Audio") );
+		UObject::BindPackage( AudioPackage );
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V209_AUDIO_BIND package=%s"), AudioPackage ? AudioPackage->GetName() : TEXT("NULL") );
+		UClass* AudioClass = StaticLoadClass( UAudioSubsystem::StaticClass(), NULL, TEXT("Audio.GenericAudioSubsystem"), NULL, LOAD_NoWarn | LOAD_DisallowFiles, NULL );
+		if( !AudioClass )
+		{
+			debugf( NAME_Init, TEXT("UT99_ANDROID_V209_AUDIO_CLASS_NOT_FOUND") );
+			return;
+		}
+#else
 		UClass* AudioClass = StaticLoadClass( UAudioSubsystem::StaticClass(), NULL, TEXT("ini:Engine.Engine.AudioDevice"), NULL, LOAD_NoFail, NULL );
+#endif
 		Audio = ConstructObject<UAudioSubsystem>( AudioClass );
 		if( !Audio->Init() )
 		{

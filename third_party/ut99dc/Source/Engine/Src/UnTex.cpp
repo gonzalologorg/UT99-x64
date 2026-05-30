@@ -27,6 +27,41 @@ static UBOOL IsKnownTextureObject( UObject* Object )
 	unguardSlow;
 }
 
+static FColor* GetSafeP8Palette()
+{
+	static UBOOL Initialized = 0;
+	static FColor Colors[NUM_PAL_COLORS];
+	if( !Initialized )
+	{
+		for( INT i=0; i<NUM_PAL_COLORS; i++ )
+			Colors[i] = FColor(i,i,i,255);
+		Initialized = 1;
+	}
+	return Colors;
+}
+
+static INT GetTextureFormatDataSize( ETextureFormat Format, INT USize, INT VSize )
+{
+	if( USize<=0 || VSize<=0 )
+		return 0;
+	switch( Format )
+	{
+		case TEXF_P8:
+			return USize * VSize;
+		case TEXF_RGB16:
+		case TEXF_EXT_ARGB1555:
+		case TEXF_EXT_ARGB1555_TWID:
+		case TEXF_EXT_RGB565_TWID:
+			return USize * VSize * 2;
+		case TEXF_DXT1:
+		case TEXF_EXT_ARGB1555_VQ:
+		case TEXF_EXT_RGB565_VQ:
+			return Max<INT>(1,(USize+3)/4) * Max<INT>(1,(VSize+3)/4) * 8;
+		default:
+			return USize * VSize * 4;
+	}
+}
+
 /*-----------------------------------------------------------------------------
 	UBitmap.
 -----------------------------------------------------------------------------*/
@@ -92,6 +127,7 @@ void UTexture::Update( DOUBLE CurrentTime )
 void UTexture::Lock( FTextureInfo& TextureInfo, DOUBLE CurrentTime, INT LOD, URenderDevice* RenDev )
 {
 	guard(UTexture::Lock);
+	appMemzero( &TextureInfo, sizeof(TextureInfo) );
 	if( !IsKnownTextureObject( Palette ) )
 	{
 		debugf( NAME_Warning, TEXT("UT99_ANDROID_V186_BAD_TEXTURE_PALETTE texture=%s palette=%p"), GetFullName(), Palette );
@@ -127,17 +163,37 @@ void UTexture::Lock( FTextureInfo& TextureInfo, DOUBLE CurrentTime, INT LOD, URe
 	TextureInfo.UScale          = Scale * ScaleFactor;
 	TextureInfo.VScale          = Scale * ScaleFactor;
 	TextureInfo.PaletteCacheID	= Palette ? MakeCacheID( CID_RenderPalette, Palette ) : 0;
-	TextureInfo.Palette			= GetColors();
 	TextureInfo.CacheID			= MakeCacheID( (ECacheIDBase)(CID_RenderTexture+LOD), this );
 	TextureInfo.USize			= TextureInfo.UClamp			= WhichMips(LOD).USize;
 	TextureInfo.VSize			= TextureInfo.VClamp			= WhichMips(LOD).VSize;
 	TextureInfo.NumMips			= WhichMips.Num() - LOD;
 	TextureInfo.Format          = (ETextureFormat)(UseComp ? CompFormat : Format);
+	TextureInfo.Palette			= (TextureInfo.Format==TEXF_P8) ? (Palette ? GetColors() : GetSafeP8Palette()) : GetColors();
+	if( Format==TEXF_P8 && !Palette )
+	{
+		debugf( NAME_Warning, TEXT("UT99_ANDROID_V203_USING_SAFE_P8_PALETTE texture=%s"), GetFullName() );
+		TextureInfo.PaletteCacheID = MakeCacheID( CID_RenderPalette, this ) ^ 0x5afe9a1e;
+	}
 	if( !bParametric && (!RenDev || !RenDev->PrefersDeferredLoad) )
 		for( INT i=LOD; i<WhichMips.Num(); i++ )
 			WhichMips(i).DataArray.Load();
 	for( INT i=LOD; i<WhichMips.Num(); i++ )
 	{
+		INT ExpectedBytes = GetTextureFormatDataSize( TextureInfo.Format, WhichMips(i).USize, WhichMips(i).VSize );
+		if( WhichMips(i).USize<=0 || WhichMips(i).VSize<=0 || WhichMips(i).DataArray.Num()<ExpectedBytes )
+		{
+			debugf( NAME_Warning, TEXT("UT99_ANDROID_V202_BAD_MIP_DATA texture=%s mip=%i size=%ix%i bytes=%i expected=%i palette=%p format=%i"),
+				GetFullName(),
+				i,
+				WhichMips(i).USize,
+				WhichMips(i).VSize,
+				WhichMips(i).DataArray.Num(),
+				ExpectedBytes,
+				Palette,
+				Format );
+			appMemzero( &TextureInfo, sizeof(TextureInfo) );
+			return;
+		}
 		WhichMips(i).DataPtr    = &WhichMips(i).DataArray(0);
 		TextureInfo.Mips[i-LOD] = &WhichMips(i);
 	}

@@ -25,9 +25,43 @@ static UBOOL IsKnownCanvasObject( UObject* Object )
 static UBOOL ValidateCanvasTexture( UTexture* Texture, const TCHAR* Context )
 {
 	guardSlow(ValidateCanvasTexture);
-	if( IsKnownCanvasObject( Texture ) )
+	if( IsKnownCanvasObject( Texture ) && (!Texture || Texture->IsA(UTexture::StaticClass())) )
 		return 1;
 	debugf( NAME_Warning, TEXT("UT99_ANDROID_V186_BAD_CANVAS_TEXTURE context=%s texture=%p"), Context, Texture );
+	return 0;
+	unguardSlow;
+}
+
+static UBOOL ValidateCanvasActor( AActor* Actor, const TCHAR* Context )
+{
+	guardSlow(ValidateCanvasActor);
+	if( IsKnownCanvasObject( Actor ) && (!Actor || Actor->IsA(AActor::StaticClass())) )
+		return 1;
+	debugf( NAME_Warning, TEXT("UT99_ANDROID_V201_BAD_CANVAS_ACTOR context=%s actor=%p"), Context, Actor );
+	return 0;
+	unguardSlow;
+}
+
+static UBOOL ValidateCanvasTextureInfo( const FTextureInfo& Info, const TCHAR* Context )
+{
+	guardSlow(ValidateCanvasTextureInfo);
+	if( Info.NumMips>0
+	&&	Info.Mips[0]
+	&&	Info.Mips[0]->DataPtr
+	&&	Info.USize>0
+	&&	Info.VSize>0
+	&&	Info.UScale!=0.0f
+	&&	Info.VScale!=0.0f )
+		return 1;
+	debugf( NAME_Warning, TEXT("UT99_ANDROID_V201_BAD_CANVAS_TEXTUREINFO context=%s mips=%i size=%ix%i scale=%f,%f mip0=%p data0=%p"),
+		Context,
+		Info.NumMips,
+		Info.USize,
+		Info.VSize,
+		Info.UScale,
+		Info.VScale,
+		Info.Mips[0],
+		Info.Mips[0] ? Info.Mips[0]->DataPtr : NULL );
 	return 0;
 	unguardSlow;
 }
@@ -82,11 +116,22 @@ void UCanvas::DrawTile
 
 	// Draw it.
 	FTextureInfo Info;
+	appMemzero( &Info, sizeof(Info) );
 	if( !GIsEditor )
 		Texture = Texture->Get( Viewport->CurrentTime );
 	if( !ValidateCanvasTexture( Texture, TEXT("DrawTile.Get") ) )
 		return;
+	if( Texture->USize<=0 || Texture->VSize<=0 )
+	{
+		debugf( NAME_Warning, TEXT("UT99_ANDROID_V201_BAD_CANVAS_TEXTURE_SIZE texture=%s size=%ix%i"),
+			Texture->GetFullName(),
+			Texture->USize,
+			Texture->VSize );
+		return;
+	}
 	Texture->Lock( Info, Viewport->CurrentTime, -1, Viewport->RenDev );
+	if( !ValidateCanvasTextureInfo( Info, TEXT("DrawTile.Lock") ) )
+		return;
 	FLOAT UF = Info.UScale * Info.USize / Texture->USize; U *= UF; UL *= UF;
 	FLOAT VF = Info.VScale * Info.VSize / Texture->VSize; V *= VF; VL *= VF;
 	Viewport->RenDev->DrawTile( Frame, Info, X, Y, XL, YL, U, V, UL, VL, SpanBuffer, Z, Color, Fog, PolyFlags | (Texture->PolyFlags&PF_Masked) );
@@ -594,6 +639,11 @@ void UCanvas::execDrawActor( FFrame& Stack, RESULT_DECL )
 	P_GET_UBOOL(WireFrame);
 	P_GET_UBOOL_OPTX(ClearZ, 0);
 	P_FINISH;
+	if( !ValidateCanvasActor( Actor, TEXT("DrawActor") ) || !Actor )
+	{
+		Stack.Logf( TEXT("DrawActor: Missing Actor") );
+		return;
+	}
 
 	INT OldRendMap;
 	OldRendMap = Viewport->Actor->RendMap;
@@ -621,6 +671,11 @@ void UCanvas::execDrawClippedActor( FFrame& Stack, RESULT_DECL )
 	P_GET_INT(YB);
 	P_GET_UBOOL_OPTX(ClearZ, 0);
 	P_FINISH;
+	if( !ValidateCanvasActor( Actor, TEXT("DrawClippedActor") ) || !Actor )
+	{
+		Stack.Logf( TEXT("DrawClippedActor: Missing Actor") );
+		return;
+	}
 	
 	INT OldX, OldY, OldXB, OldYB;
 	INT OldRendMap;

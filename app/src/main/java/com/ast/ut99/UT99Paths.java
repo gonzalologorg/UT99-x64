@@ -447,8 +447,41 @@ final class UT99Paths {
             writeUtf8(userIni, buildAndroidUserIni());
             created = true;
         }
+        ensureAndroidAudioConfig(system);
         ensureAndroidLeanMenuConfig(system);
         return created;
+    }
+
+    private static void ensureAndroidAudioConfig(File systemDir) throws IOException {
+        if (systemDir == null) return;
+
+        String audioBlock = "\n\n; UT99_ANDROID_V207_SDL_AUDIO_CONFIG\n" +
+                "[Engine.Engine]\n" +
+                "AudioDevice=Audio.GenericAudioSubsystem\n" +
+                "UseSound=True\n" +
+                "\n" +
+                "[Engine.GameEngine]\n" +
+                "UseSound=True\n" +
+                "\n" +
+                "[Audio.GenericAudioSubsystem]\n" +
+                "UseDigitalMusic=True\n" +
+                "UseStereo=True\n" +
+                "Use3dHardware=False\n" +
+                "UseSpatial=False\n" +
+                "UseReverb=False\n" +
+                "Latency=20\n" +
+                "Channels=8\n" +
+                "OutputRate=22050Hz\n";
+
+        String[] names = {"AndroidUT99.ini", "AndroidUser.ini", "Default.ini", "UnrealTournament.ini"};
+        for (String name : names) {
+            File ini = new File(systemDir, name);
+            if (!ini.isFile() || ini.length() == 0L) continue;
+            String text = readUtf8(ini);
+            if (text.indexOf("UT99_ANDROID_V207_SDL_AUDIO_CONFIG") < 0) {
+                writeUtf8(ini, text + audioBlock);
+            }
+        }
     }
 
     private static void ensureAndroidCoreSystemPaths(File systemDir) throws IOException {
