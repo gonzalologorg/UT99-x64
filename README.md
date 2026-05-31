@@ -29,6 +29,11 @@
 But my main goal is to be able to compile it so i can run it on Pico4, so this is not really for x64 but Android -> VR
 I hope to be able to get it done, I really wanna play (After enjoying cs 1.6 vr) UnrealTournament, along ut2004, those are **MY FAVORITE** games, so let's hope everything goes well
 
+** UPDATE
+It's booting, at awful perfomance and with graphical issues, but MAN, it's ALIVE! Still no audio yet
+
+https://github.com/user-attachments/assets/d4bea90e-efaa-40d2-aa00-fc154782b07c
+
 ## 
 
 **Unreal Tournament Android** is an Android port of **Unreal Tournament / UT99 (1999)** based on the classic **Unreal Engine 1** source code.
