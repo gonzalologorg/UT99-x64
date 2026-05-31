@@ -56,6 +56,15 @@ INT OpenAudio( DWORD Rate, INT OutputMode, INT Latency )
 #if PLATFORM_ANDROID
 	SDL_AudioSpec Desired;
 	SDL_AudioSpec Obtained;
+	if( !(SDL_WasInit( SDL_INIT_AUDIO ) & SDL_INIT_AUDIO) )
+	{
+		if( SDL_InitSubSystem( SDL_INIT_AUDIO ) != 0 )
+		{
+			debugf( NAME_Init, TEXT("UT99_ANDROID_V210_SDL_AUDIO_INIT_FAILED error=%s"), appFromAnsi(SDL_GetError()) );
+			return 0;
+		}
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V210_SDL_AUDIO_INIT") );
+	}
 	SDL_zero( Desired );
 	SDL_zero( Obtained );
 	Desired.freq = Rate;

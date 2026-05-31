@@ -2184,17 +2184,50 @@ void URender::OccludeBsp( FSceneNode* Frame )
 #if PLATFORM_ANDROID
 	if( iViewZone != 0 )
 	{
-		debugf( NAME_Log, TEXT("UT99_ANDROID_V191_ZONE_FILTER_DISABLE frameZone=%i actorZone=%i usingViewZone=0"),
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V225_ZONE_FILTER_RESTORE frameZone=%i actorZone=%i usingViewZone=%i numZones=%i regionZone=%p modelZoneActor=%p"),
 			iViewZone,
-			Viewport->Actor->Region.ZoneNumber );
-		iViewZone = 0;
+			Viewport->Actor->Region.ZoneNumber,
+			iViewZone,
+			Model->NumZones,
+			Viewport->Actor->Region.Zone,
+			Model->Zones[iViewZone].ZoneActor );
 	}
 #endif
 	ViewZoneMask		= iViewZone ? ~0 : 0;
 	NumActiveZones      = 1;
 	ActiveZones[0]      = iViewZone;
 	ActiveZoneMask		= ((QWORD)1) << iViewZone;
+#if PLATFORM_ANDROID
+	static INT AndroidOccludeInitTraceCount = 0;
+	AZoneInfo* AndroidRegionZone = Viewport->Actor->Region.Zone;
+	if( AndroidOccludeInitTraceCount < 32 || (AndroidOccludeInitTraceCount % 120) == 0 )
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V226_OCCLUDE_INIT stage=mask count=%i viewZone=%i activeMask=0x%08x%08x regionZone=%p"),
+			AndroidOccludeInitTraceCount,
+			iViewZone,
+			(DWORD)(ActiveZoneMask >> 32),
+			(DWORD)ActiveZoneMask,
+			AndroidRegionZone );
+	if( !ValidateDrawWorldObject( AndroidRegionZone, TEXT("Viewport.Actor.Region.Zone") ) || (AndroidRegionZone && !AndroidRegionZone->IsA(AZoneInfo::StaticClass())) )
+	{
+		debugf( NAME_Warning, TEXT("UT99_ANDROID_V226_BAD_REGION_ZONE actor=%s regionZone=%p fallbackZone=%p viewZone=%i"),
+			Viewport->Actor ? Viewport->Actor->GetFullName() : TEXT("None"),
+			AndroidRegionZone,
+			Model->Zones[iViewZone].ZoneActor,
+			iViewZone );
+		AndroidRegionZone = Frame->Level->GetZoneActor(iViewZone);
+	}
+	IsVolumetric        = RenDev->VolumetricLighting && RenDev->SupportsFogMaps && AndroidRegionZone && AndroidRegionZone->bFogZone;
+	if( AndroidOccludeInitTraceCount < 32 || (AndroidOccludeInitTraceCount % 120) == 0 )
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V226_OCCLUDE_INIT stage=volumetric count=%i isVolumetric=%i volLighting=%i fogMaps=%i zone=%p"),
+			AndroidOccludeInitTraceCount,
+			IsVolumetric,
+			RenDev->VolumetricLighting,
+			RenDev->SupportsFogMaps,
+			AndroidRegionZone );
+	AndroidOccludeInitTraceCount++;
+#else
 	IsVolumetric        = RenDev->VolumetricLighting && RenDev->SupportsFogMaps && Viewport->Actor->Region.Zone->bFogZone;
+#endif
 	PolyFlagMask        = (Viewport->Actor->ShowFlags & SHOW_PlayerCtrl) ? ~0 : ~PF_Invisible;
 	ExtraPolyFlags		= Viewport->ExtraPolyFlags;
 	FirstVolumetric		= NULL;
@@ -2207,7 +2240,7 @@ void URender::OccludeBsp( FSceneNode* Frame )
 	Model->Zones[iViewZone].LastRenderTime = TimeSeconds;
 	static INT AndroidOccludeTraceCount = 0;
 	AndroidOccludeTraceCount++;
-	if( AndroidOccludeTraceCount <= 12 || (AndroidOccludeTraceCount % 60) == 0 )
+	if( AndroidOccludeTraceCount <= 64 || (AndroidOccludeTraceCount % 60) == 0 )
 	{
 		debugf( NAME_Log, TEXT("UT99_ANDROID_V190_OCCLUDE_BEGIN count=%i map=%s frameZone=%i viewZone=%i actorZone=%i actorLeaf=%i validLines=%i nodes=%i surfs=%i points=%i rootOutside=%i origin=%f,%f,%f show=0x%08x rend=%i"),
 			AndroidOccludeTraceCount,
@@ -2884,7 +2917,7 @@ void URender::OccludeBsp( FSceneNode* Frame )
 	for( i=0; i<FBspNode::MAX_ZONES; i++ )
 		if( ZoneSpanBuffer[i].EndY )
 			STAT(GStat.VisibleZones++);
-	if( AndroidOccludeTraceCount <= 12 || (AndroidOccludeTraceCount % 60) == 0 )
+	if( AndroidOccludeTraceCount <= 64 || (AndroidOccludeTraceCount % 60) == 0 )
 	{
 		INT DrawCounts[3] = {0,0,0};
 		for( INT PassIndex=0; PassIndex<3; PassIndex++ )
@@ -3273,6 +3306,28 @@ void URender::DrawFrame( FSceneNode* Frame )
 				);
 #if PLATFORM_ANDROID
 				debugf( NAME_Log, TEXT("UT99_ANDROID_V198_DRAWFRAME_STAGE stage=after_light surf=%i light=%p fog=%p"), Draw->iSurf, Surface.LightMap, Surface.FogMap );
+				if( Surface.LightMap && Surface.LightMap->NumMips > 0 && Surface.LightMap->Mips[0] && Surface.LightMap->Mips[0]->DataPtr )
+				{
+					const BYTE* LightBytes = (const BYTE*)Surface.LightMap->Mips[0]->DataPtr;
+					const INT LightByteCount = Surface.LightMap->Mips[0]->USize * Surface.LightMap->Mips[0]->VSize * 4;
+					const INT SampleBytes = Min( LightByteCount, 256 );
+					INT LightSum = 0;
+					for( INT LightIndex=0; LightIndex<SampleBytes; LightIndex++ )
+						LightSum += LightBytes[LightIndex];
+					if( SampleBytes > 0 && LightSum < SampleBytes * 2 )
+					{
+						static INT AndroidDarkLightLogs = 0;
+						if( AndroidDarkLightLogs++ < 64 )
+							debugf( NAME_Warning, TEXT("UT99_ANDROID_V220_SKIP_DARK_LIGHTMAP surf=%i size=%ix%i bytes=%i sample=%i sum=%i"),
+								Draw->iSurf,
+								Surface.LightMap->Mips[0]->USize,
+								Surface.LightMap->Mips[0]->VSize,
+								LightByteCount,
+								SampleBytes,
+								LightSum );
+						Surface.LightMap = NULL;
+					}
+				}
 #endif
 			}
 

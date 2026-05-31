@@ -324,6 +324,26 @@ void ALevelInfo::execGetAddressURL( FFrame& Stack, RESULT_DECL )
 // Client-side functions //
 ///////////////////////////
 
+static UBOOL IsKnownClientHearActorPointer( AActor* Actor )
+{
+	if( !Actor )
+		return 0;
+	for( TObjectIterator<AActor> It; It; ++It )
+		if( *It==Actor )
+			return 1;
+	return 0;
+}
+
+static UBOOL IsKnownClientHearSoundPointer( USound* Sound )
+{
+	if( !Sound )
+		return 0;
+	for( TObjectIterator<USound> It; It; ++It )
+		if( *It==Sound )
+			return 1;
+	return 0;
+}
+
 void APawn::execClientHearSound( FFrame& Stack, RESULT_DECL )
 {
 	guard(APawn::execClientHearSound);
@@ -338,12 +358,31 @@ void APawn::execClientHearSound( FFrame& Stack, RESULT_DECL )
 	FLOAT Volume = 0.01 * Parameters.X;
 	FLOAT Radius = Parameters.Y;
 	FLOAT Pitch  = 0.01 * Parameters.Z;
+	static INT ClientHearTraceCount = 0;
+	if( ClientHearTraceCount++ < 16 )
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V214_CLIENT_HEAR_SOUND this=0x%08x actor=0x%08x id=%i sound=0x%08x radius=%f pitch=%f"),
+			(DWORD)(QWORD)this,
+			(DWORD)(QWORD)Actor,
+			Id,
+			(DWORD)(QWORD)Sound,
+			Radius,
+			Pitch );
 	if
 	(	IsA(APlayerPawn::StaticClass()) 
 	&&	((APlayerPawn*)this)->Player
 	&&	((APlayerPawn*)this)->Player->IsA(UViewport::StaticClass())
 	&&	GetLevel()->Engine->Audio )
 	{
+		if( Actor && !IsKnownClientHearActorPointer(Actor) )
+		{
+			debugf( NAME_Init, TEXT("UT99_ANDROID_V214_CLIENT_HEAR_BAD_ACTOR actor=0x%08x id=%i sound=0x%08x"), (DWORD)(QWORD)Actor, Id, (DWORD)(QWORD)Sound );
+			Actor = NULL;
+		}
+		if( Sound && !IsKnownClientHearSoundPointer(Sound) )
+		{
+			debugf( NAME_Init, TEXT("UT99_ANDROID_V214_CLIENT_HEAR_BAD_SOUND actor=0x%08x id=%i sound=0x%08x"), (DWORD)(QWORD)Actor, Id, (DWORD)(QWORD)Sound );
+			return;
+		}
 		if( Actor && Actor->bDeleteMe )
 			Actor = NULL;
 		GetLevel()->Engine->Audio->PlaySound( Actor, Id, Sound, SoundLocation, Volume, Radius ? Radius : 1600.f, Pitch );

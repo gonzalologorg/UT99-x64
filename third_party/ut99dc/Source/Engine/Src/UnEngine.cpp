@@ -18,6 +18,72 @@ IMPLEMENT_CLASS(URenderBase);
 IMPLEMENT_CLASS(URenderDevice);
 IMPLEMENT_CLASS(URenderIterator);
 
+static UBOOL IsKnownInputObject( UObject* Object )
+{
+	guardSlow(IsKnownInputObject);
+	if( !Object )
+		return 1;
+	for( FObjectIterator It; It; ++It )
+		if( *It == Object )
+			return 1;
+	return 0;
+	unguardSlow;
+}
+
+static UObject* RecoverTruncatedInputObject( UObject* Object, UClass* ExpectedClass )
+{
+	guardSlow(RecoverTruncatedInputObject);
+#if defined(PLATFORM_64BIT)
+	if( !Object )
+		return NULL;
+	const DWORD LowBits = (DWORD)(QWORD)Object;
+	UObject* Match = NULL;
+	INT MatchCount = 0;
+	for( FObjectIterator It; It; ++It )
+	{
+		UObject* Candidate = *It;
+		if( Candidate && (DWORD)(QWORD)Candidate == LowBits && (!ExpectedClass || Candidate->IsA(ExpectedClass)) )
+		{
+			Match = Candidate;
+			MatchCount++;
+			if( MatchCount > 1 )
+				break;
+		}
+	}
+	if( MatchCount == 1 )
+		return Match;
+#endif
+	return NULL;
+	unguardSlow;
+}
+
+static UObject* ValidateInputObject( UViewport* Viewport, UObject* Object, UClass* ExpectedClass, const TCHAR* Field )
+{
+	guardSlow(ValidateInputObject);
+	if( IsKnownInputObject( Object ) && (!Object || !ExpectedClass || Object->IsA(ExpectedClass)) )
+		return Object;
+	UObject* Recovered = RecoverTruncatedInputObject( Object, ExpectedClass );
+	if( Recovered )
+	{
+		debugf( NAME_Warning, TEXT("UT99_ANDROID_V218_RECOVER_INPUT_OBJECT viewport=%s field=%s old=%p new=%p class=%s"),
+			Viewport ? Viewport->GetName() : TEXT("None"),
+			Field,
+			Object,
+			Recovered,
+			Recovered->GetClass()->GetName() );
+		return Recovered;
+	}
+	debugf( NAME_Warning, TEXT("UT99_ANDROID_V218_BAD_INPUT_OBJECT viewport=%s field=%s object=%p actor=%p console=%p input=%p"),
+		Viewport ? Viewport->GetName() : TEXT("None"),
+		Field,
+		Object,
+		Viewport ? Viewport->Actor : NULL,
+		Viewport ? Viewport->Console : NULL,
+		Viewport ? Viewport->Input : NULL );
+	return NULL;
+	unguardSlow;
+}
+
 /*-----------------------------------------------------------------------------
 	Engine init and exit.
 -----------------------------------------------------------------------------*/
@@ -289,6 +355,20 @@ UBOOL UEngine::Key( UViewport* Viewport, EInputKey Key )
 UBOOL UEngine::InputEvent( UViewport* Viewport, EInputKey iKey, EInputAction State, FLOAT Delta )
 {
 	guard(UEngine::InputEvent);
+
+#if PLATFORM_ANDROID
+	if( !Viewport )
+		return 0;
+	Viewport->Actor = (APlayerPawn*)ValidateInputObject( Viewport, Viewport->Actor, APlayerPawn::StaticClass(), TEXT("Viewport.Actor") );
+	Viewport->Console = (UConsole*)ValidateInputObject( Viewport, Viewport->Console, UConsole::StaticClass(), TEXT("Viewport.Console") );
+	Viewport->Input = (UInput*)ValidateInputObject( Viewport, Viewport->Input, UInput::StaticClass(), TEXT("Viewport.Input") );
+	if( !Viewport->Actor || !Viewport->Input )
+		return 0;
+	if( Viewport->Actor->myHUD )
+		Viewport->Actor->myHUD = (AHUD*)ValidateInputObject( Viewport, Viewport->Actor->myHUD, AHUD::StaticClass(), TEXT("Viewport.Actor.myHUD") );
+	if( Viewport->Actor->myHUD && Viewport->Actor->myHUD->MainMenu )
+		Viewport->Actor->myHUD->MainMenu = (AMenu*)ValidateInputObject( Viewport, Viewport->Actor->myHUD->MainMenu, AMenu::StaticClass(), TEXT("Viewport.Actor.myHUD.MainMenu") );
+#endif
 
 	//oldver: Translate yes/no if necessary.
 	if

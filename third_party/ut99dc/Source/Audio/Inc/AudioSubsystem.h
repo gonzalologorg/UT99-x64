@@ -149,8 +149,5 @@ class DLL_EXPORT_CLASS UGenericAudioSubsystem : public UAudioSubsystem
 			RegisterSound( Sound );
 		return (Sample*)Sound->Handle;
 	}
-	FLOAT SoundPriority( UViewport* Viewport, FVector Location, FLOAT Volume, FLOAT Radius )
-	{
-		return Volume * (1.0 - (Location - (Viewport->Actor->ViewTarget?Viewport->Actor->ViewTarget:Viewport->Actor)->Location).Size()/Radius);
-	}
+	FLOAT SoundPriority( UViewport* Viewport, FVector Location, FLOAT Volume, FLOAT Radius );
 };

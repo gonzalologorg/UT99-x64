@@ -12,6 +12,19 @@ Revision history:
 // Forward declaration
 QSORT_RETURN CDECL CompareHits( const FCheckResult* A, const FCheckResult* B );
 
+static INT AndroidTrailingNumber( const TCHAR* Name )
+{
+	if( !Name )
+		return 0x7fffffff;
+	INT End = appStrlen(Name);
+	INT Start = End;
+	while( Start>0 && appIsDigit(Name[Start-1]) )
+		Start--;
+	if( Start==End )
+		return 0x7fffffff;
+	return appAtoi(Name+Start);
+}
+
 /*-----------------------------------------------------------------------------
 	Level actor management.
 -----------------------------------------------------------------------------*/
@@ -576,9 +589,118 @@ APlayerPawn* ULevel::SpawnPlayActor( UPlayer* Player, ENetRole RemoteRole, const
 
 	// Tell UnrealScript to log in.
 	INT SavedActorCount = Actors.Num();//oldver: Login should say whether to accept inventory.
+#if PLATFORM_ANDROID
+	INT PlayerStartTraceCount = 0;
+	for( INT StartIndex=0; StartIndex<Actors.Num() && PlayerStartTraceCount<16; StartIndex++ )
+	{
+		APlayerStart* Start = Cast<APlayerStart>( Actors(StartIndex) );
+		if( Start )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V224_PLAYERSTART_TRACE index=%i actor=%s loc=%f,%f,%f rot=%i,%i,%i single=%i enabled=%i"),
+				StartIndex,
+				Start->GetFullName(),
+				Start->Location.X,
+				Start->Location.Y,
+				Start->Location.Z,
+				Start->Rotation.Pitch,
+				Start->Rotation.Yaw,
+				Start->Rotation.Roll,
+				Start->bSinglePlayerStart,
+				Start->bEnabled );
+			PlayerStartTraceCount++;
+		}
+	}
+	debugf( NAME_Log, TEXT("UT99_ANDROID_V224_PLAYERSTART_COUNT count=%i totalActors=%i"), PlayerStartTraceCount, Actors.Num() );
+	INT InterpTraceCount = 0;
+	INT TriggerTraceCount = 0;
+	for( INT TraceIndex=0; TraceIndex<Actors.Num(); TraceIndex++ )
+	{
+		AInterpolationPoint* Interp = Cast<AInterpolationPoint>( Actors(TraceIndex) );
+		if( Interp && InterpTraceCount<32 )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V231_INTERP_TRACE index=%i actor=%s tag=%s event=%s loc=%f,%f,%f rot=%i,%i,%i pos=%i rate=%f next=%p prev=%p end=%i skip=%i"),
+				TraceIndex,
+				Interp->GetFullName(),
+				*Interp->Tag,
+				*Interp->Event,
+				Interp->Location.X,
+				Interp->Location.Y,
+				Interp->Location.Z,
+				Interp->Rotation.Pitch,
+				Interp->Rotation.Yaw,
+				Interp->Rotation.Roll,
+				Interp->Position,
+				Interp->RateModifier,
+				Interp->Next,
+				Interp->Prev,
+				Interp->bEndOfPath,
+				Interp->bSkipNextPath );
+			InterpTraceCount++;
+		}
+		ATrigger* Trigger = Cast<ATrigger>( Actors(TraceIndex) );
+		if( Trigger && TriggerTraceCount<32 )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V231_TRIGGER_TRACE index=%i actor=%s tag=%s event=%s loc=%f,%f,%f radius=%f height=%f type=%i active=%i once=%i collide=%i block=%i"),
+				TraceIndex,
+				Trigger->GetFullName(),
+				*Trigger->Tag,
+				*Trigger->Event,
+				Trigger->Location.X,
+				Trigger->Location.Y,
+				Trigger->Location.Z,
+				Trigger->CollisionRadius,
+				Trigger->CollisionHeight,
+				Trigger->TriggerType,
+				Trigger->bInitiallyActive,
+				Trigger->bTriggerOnceOnly,
+				Trigger->bCollideActors,
+				Trigger->bBlockActors );
+			TriggerTraceCount++;
+		}
+	}
+	debugf( NAME_Log, TEXT("UT99_ANDROID_V231_ACTOR_TRACE_COUNTS interp=%i trigger=%i"), InterpTraceCount, TriggerTraceCount );
+#endif
 	debugf( NAME_Log, TEXT("UT99_ANDROID_V173_SPAWNPLAY_TRACE eventLogin begin portal=%s options=%s game=%s savedActors=%i"), *URL.Portal, Options, GetLevelInfo()->Game ? GetLevelInfo()->Game->GetFullName() : TEXT("None"), SavedActorCount );
 	APlayerPawn* Actor = GetLevelInfo()->Game->eventLogin( *URL.Portal, Options, Error, PlayerClass );
 	debugf( NAME_Log, TEXT("UT99_ANDROID_V173_SPAWNPLAY_TRACE eventLogin done actor=%s error=%s actors=%i"), Actor ? Actor->GetFullName() : TEXT("None"), *Error, Actors.Num() );
+	if( Actor )
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V223_SPAWN_ROT stage=after_login actor=%s loc=%f,%f,%f rot=%i,%i,%i viewrot=%i,%i,%i physics=%i viewtarget=%p"),
+			Actor->GetFullName(),
+			Actor->Location.X,
+			Actor->Location.Y,
+			Actor->Location.Z,
+			Actor->Rotation.Pitch,
+			Actor->Rotation.Yaw,
+			Actor->Rotation.Roll,
+			Actor->ViewRotation.Pitch,
+			Actor->ViewRotation.Yaw,
+			Actor->ViewRotation.Roll,
+			Actor->Physics,
+			Actor->ViewTarget );
+#if PLATFORM_ANDROID
+	if( Actor && Actor->Rotation.Pitch==0 && Actor->Rotation.Yaw==0 && Actor->Rotation.Roll==0 && Actor->ViewRotation.Pitch==0 && Actor->ViewRotation.Yaw==0 && Actor->ViewRotation.Roll==0 )
+	{
+		for( INT StartIndex=0; StartIndex<Actors.Num(); StartIndex++ )
+		{
+			APlayerStart* Start = Cast<APlayerStart>( Actors(StartIndex) );
+			if( Start && !Start->bSinglePlayerStart && !Start->bEnabled && (Start->Location-Actor->Location).SizeSquared()<1.0f )
+			{
+				Actor->Rotation.Yaw = 32768;
+				Actor->ViewRotation = Actor->Rotation;
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V227_BAD_INTRO_START_ROT_FIX start=%s actor=%s newrot=%i,%i,%i loc=%f,%f,%f"),
+					Start->GetFullName(),
+					Actor->GetFullName(),
+					Actor->Rotation.Pitch,
+					Actor->Rotation.Yaw,
+					Actor->Rotation.Roll,
+					Actor->Location.X,
+					Actor->Location.Y,
+					Actor->Location.Z );
+				break;
+			}
+		}
+	}
+#endif
 	if( !Actor )
 	{
 		debugf( NAME_Warning, TEXT("Login failed: %s"), *Error);
@@ -731,6 +853,171 @@ APlayerPawn* ULevel::SpawnPlayActor( UPlayer* Player, ENetRole RemoteRole, const
 	debugf( NAME_Log, TEXT("UT99_ANDROID_V173_SPAWNPLAY_TRACE PostLogin begin actor=%s"), Actor->GetFullName() );
 	GetLevelInfo()->Game->eventPostLogin( Actor );
 	debugf( NAME_Log, TEXT("UT99_ANDROID_V173_SPAWNPLAY_TRACE PostLogin done actor=%s"), Actor->GetFullName() );
+#if PLATFORM_ANDROID
+	if( Actor && appStricmp(GetOuter()->GetName(),TEXT("CityIntro"))==0 && Actor->Physics!=PHYS_Interpolating )
+	{
+		AInterpolationPoint* FirstInterp = NULL;
+		AInterpolationPoint* SecondInterp = NULL;
+		AInterpolationPoint* FirstCandidate = NULL;
+		for( INT TraceIndex=0; TraceIndex<Actors.Num(); TraceIndex++ )
+		{
+			AInterpolationPoint* Interp = Cast<AInterpolationPoint>( Actors(TraceIndex) );
+			if( Interp && Interp->Position==0 )
+			{
+				if( !FirstCandidate )
+					FirstCandidate = Interp;
+				AInterpolationPoint* CandidateNext = Interp->Next;
+				if( !CandidateNext )
+				{
+					for( INT NextIndex=0; NextIndex<Actors.Num(); NextIndex++ )
+					{
+						AInterpolationPoint* NextInterp = Cast<AInterpolationPoint>( Actors(NextIndex) );
+						if( NextInterp && NextInterp!=Interp && NextInterp->Position==1 && NextInterp->Tag==Interp->Tag )
+						{
+							CandidateNext = NextInterp;
+							break;
+						}
+					}
+				}
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V234_CITYINTRO_PATH_CANDIDATE first=%s tag=%s pos=%i next=%p nextName=%s nextPos=%i"),
+					Interp->GetFullName(),
+					*Interp->Tag,
+					Interp->Position,
+					CandidateNext,
+					CandidateNext ? CandidateNext->GetFullName() : TEXT("None"),
+					CandidateNext ? CandidateNext->Position : -1 );
+				if( CandidateNext )
+				{
+					FirstInterp = Interp;
+					SecondInterp = CandidateNext;
+					break;
+				}
+			}
+		}
+		if( !FirstInterp && FirstCandidate )
+		{
+			FirstInterp = FirstCandidate;
+			const INT FirstSuffix = AndroidTrailingNumber( FirstInterp->GetName() );
+			INT BestSuffix = 0x7fffffff;
+			for( INT NextIndex=0; NextIndex<Actors.Num(); NextIndex++ )
+			{
+				AInterpolationPoint* NextInterp = Cast<AInterpolationPoint>( Actors(NextIndex) );
+				if( NextInterp && NextInterp!=FirstInterp && NextInterp->Tag==FirstInterp->Tag )
+				{
+					const INT Suffix = AndroidTrailingNumber( NextInterp->GetName() );
+					if( Suffix>FirstSuffix && Suffix<BestSuffix )
+					{
+						SecondInterp = NextInterp;
+						BestSuffix = Suffix;
+					}
+				}
+			}
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V235_CITYINTRO_PATH_NAME_FALLBACK first=%s tag=%s suffix=%i second=%s secondSuffix=%i"),
+				FirstInterp->GetFullName(),
+				*FirstInterp->Tag,
+				FirstSuffix,
+				SecondInterp ? SecondInterp->GetFullName() : TEXT("None"),
+				BestSuffix );
+		}
+		if( FirstInterp && SecondInterp )
+		{
+			for( INT LinkIndex=0; LinkIndex<Actors.Num(); LinkIndex++ )
+			{
+				AInterpolationPoint* LinkPoint = Cast<AInterpolationPoint>( Actors(LinkIndex) );
+				if( LinkPoint && LinkPoint->Tag==FirstInterp->Tag )
+				{
+					const INT LinkSuffix = AndroidTrailingNumber( LinkPoint->GetName() );
+					AInterpolationPoint* BestNext = NULL;
+					INT BestNextSuffix = 0x7fffffff;
+					for( INT NextIndex=0; NextIndex<Actors.Num(); NextIndex++ )
+					{
+						AInterpolationPoint* NextPoint = Cast<AInterpolationPoint>( Actors(NextIndex) );
+						if( NextPoint && NextPoint!=LinkPoint && NextPoint->Tag==FirstInterp->Tag )
+						{
+							const INT NextSuffix = AndroidTrailingNumber( NextPoint->GetName() );
+							if( NextSuffix>LinkSuffix && NextSuffix<BestNextSuffix )
+							{
+								BestNext = NextPoint;
+								BestNextSuffix = NextSuffix;
+							}
+						}
+					}
+					if( BestNext )
+					{
+						LinkPoint->Next = BestNext;
+						BestNext->Prev = LinkPoint;
+					}
+					if( LinkPoint->RateModifier<=0.0f )
+						LinkPoint->RateModifier = 1.0f;
+					if( LinkPoint->GameSpeedModifier<=0.0f )
+						LinkPoint->GameSpeedModifier = 1.0f;
+					if( LinkPoint->FovModifier<=0.0f )
+						LinkPoint->FovModifier = 1.0f;
+					if( LinkPoint->ScreenFlashScale<=0.0f )
+						LinkPoint->ScreenFlashScale = 1.0f;
+				}
+			}
+		}
+		if( FirstInterp && !FirstInterp->Next )
+		{
+			if( SecondInterp )
+			{
+				FirstInterp->Next = SecondInterp;
+				SecondInterp->Prev = FirstInterp;
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V233_CITYINTRO_PATH_LINK first=%s second=%s tag=%s firstPos=%i secondPos=%i"),
+					FirstInterp->GetFullName(),
+					SecondInterp->GetFullName(),
+					*FirstInterp->Tag,
+					FirstInterp->Position,
+					SecondInterp->Position );
+			}
+		}
+		if( FirstInterp && FirstInterp->Next )
+		{
+			Actor->SetCollision( 1, 0, 0 );
+			Actor->bCollideWorld = 0;
+			Actor->Target = FirstInterp;
+			Actor->PhysRate = 1.0f;
+			Actor->PhysAlpha = 0.0f;
+			Actor->bInterpolating = 1;
+			Actor->setPhysics( PHYS_Interpolating );
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V232_CITYINTRO_PATH_RESCUE actor=%s target=%s tag=%s pos=%i next=%p nextName=%s loc=%f,%f,%f targetLoc=%f,%f,%f"),
+				Actor->GetFullName(),
+				FirstInterp->GetFullName(),
+				*FirstInterp->Tag,
+				FirstInterp->Position,
+				FirstInterp->Next,
+				FirstInterp->Next ? FirstInterp->Next->GetFullName() : TEXT("None"),
+				Actor->Location.X,
+				Actor->Location.Y,
+				Actor->Location.Z,
+				FirstInterp->Location.X,
+				FirstInterp->Location.Y,
+				FirstInterp->Location.Z );
+		}
+		else
+		{
+			debugf( NAME_Warning, TEXT("UT99_ANDROID_V233_CITYINTRO_PATH_RESCUE_MISSING actor=%s first=%s next=%p actors=%i"),
+				Actor->GetFullName(),
+				FirstInterp ? FirstInterp->GetFullName() : TEXT("None"),
+				FirstInterp ? FirstInterp->Next : NULL,
+				Actors.Num() );
+		}
+	}
+#endif
+	debugf( NAME_Log, TEXT("UT99_ANDROID_V223_SPAWN_ROT stage=after_postlogin actor=%s loc=%f,%f,%f rot=%i,%i,%i viewrot=%i,%i,%i physics=%i viewtarget=%p"),
+		Actor->GetFullName(),
+		Actor->Location.X,
+		Actor->Location.Y,
+		Actor->Location.Z,
+		Actor->Rotation.Pitch,
+		Actor->Rotation.Yaw,
+		Actor->Rotation.Roll,
+		Actor->ViewRotation.Pitch,
+		Actor->ViewRotation.Yaw,
+		Actor->ViewRotation.Roll,
+		Actor->Physics,
+		Actor->ViewTarget );
 
 	debugf( NAME_Log, TEXT("UT99_ANDROID_V173_SPAWNPLAY_TRACE success actor=%s player=%s"), Actor->GetFullName(), Actor->Player ? Actor->Player->GetFullName() : TEXT("None") );
 	return Actor;

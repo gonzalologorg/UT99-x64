@@ -1,6 +1,6 @@
 R""(
 
-varying mediump vec3 vPosition;
+varying highp vec3 vPosition;
 #ifdef SF_Texture0
 varying mediump vec2 vTexCoord0;
 #endif

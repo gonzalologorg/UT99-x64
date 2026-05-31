@@ -411,6 +411,21 @@ void UNOpenGLESRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo
 	{
 #if PLATFORM_ANDROID
 		debugf( NAME_Log, TEXT("UT99_ANDROID_V199_DRAWCOMPLEX stage=poly surface=%i node=%i pts=%i"), GAndroidGLESSurfaceCount, Poly->iNode, Poly->NumPts );
+		static INT AndroidPolyCoordLogs = 0;
+		if( AndroidPolyCoordLogs++ < 48 && Poly->NumPts > 0 && Poly->Pts[0] )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V222_POLY_COORD surface=%i node=%i pts=%i p0=%f,%f,%f sx=%f sy=%f flags=0x%08x shader=0x%08x"),
+				GAndroidGLESSurfaceCount,
+				Poly->iNode,
+				Poly->NumPts,
+				Poly->Pts[0]->Point.X,
+				Poly->Pts[0]->Point.Y,
+				Poly->Pts[0]->Point.Z,
+				Poly->Pts[0]->ScreenX,
+				Poly->Pts[0]->ScreenY,
+				Surface.PolyFlags,
+				CurrentShaderFlags );
+		}
 #endif
 		BeginPoly();
 		for( INT i = 0; i < Poly->NumPts; i++ )

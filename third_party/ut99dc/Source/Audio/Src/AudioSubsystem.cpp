@@ -19,6 +19,62 @@ Revision history:
 
 IMPLEMENT_CLASS(UGenericAudioSubsystem);
 
+static UBOOL IsKnownAudioActorPointer( AActor* Actor )
+{
+	if( !Actor )
+		return 0;
+	for( TObjectIterator<AActor> It; It; ++It )
+		if( *It==Actor )
+			return 1;
+	return 0;
+}
+
+static UBOOL IsKnownAudioSoundPointer( USound* Sound )
+{
+	if( !Sound )
+		return 0;
+	for( TObjectIterator<USound> It; It; ++It )
+		if( *It==Sound )
+			return 1;
+	return 0;
+}
+
+static UBOOL IsKnownAudioLevelPointer( ULevel* Level )
+{
+	if( !Level )
+		return 0;
+	for( TObjectIterator<ULevel> It; It; ++It )
+		if( *It==Level )
+			return 1;
+	return 0;
+}
+
+FLOAT UGenericAudioSubsystem::SoundPriority( UViewport* InViewport, FVector Location, FLOAT Volume, FLOAT Radius )
+{
+	guard(UGenericAudioSubsystem::SoundPriority);
+	if( !InViewport || !IsKnownAudioActorPointer(InViewport->Actor) || Radius <= 1.f )
+	{
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V213_AUDIO_BAD_PRIORITY_INPUT viewport=0x%08x actor=0x%08x radius=%f"),
+			(DWORD)(QWORD)InViewport,
+			InViewport ? (DWORD)(QWORD)InViewport->Actor : 0,
+			Radius );
+		return 0.f;
+	}
+	AActor* Listener = InViewport->Actor;
+	APlayerPawn* PlayerListener = Listener->IsA(APlayerPawn::StaticClass()) ? (APlayerPawn*)Listener : NULL;
+	if( PlayerListener && PlayerListener->ViewTarget )
+	{
+		if( IsKnownAudioActorPointer(PlayerListener->ViewTarget) )
+			Listener = PlayerListener->ViewTarget;
+		else
+			debugf( NAME_Init, TEXT("UT99_ANDROID_V213_AUDIO_BAD_VIEWTARGET actor=0x%08x viewtarget=0x%08x"),
+				(DWORD)(QWORD)InViewport->Actor,
+				(DWORD)(QWORD)PlayerListener->ViewTarget );
+	}
+	return Volume * (1.0 - (Location - Listener->Location).Size()/Radius);
+	unguard;
+}
+
 UGenericAudioSubsystem::UGenericAudioSubsystem()
 {
 	guard(UGenericAudioSubsystem::UGenericAudioSubsystem);
@@ -128,6 +184,21 @@ UBOOL UGenericAudioSubsystem::Init()
 {
 	guard(UGenericAudioSubsystem::Init);
 
+#if PLATFORM_ANDROID
+	if( OutputRate < 3 || !UseStereo || Channels < 8 || Latency < 20 )
+	{
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V211_AUDIO_DEFAULT_FIX oldRate=%i oldStereo=%i oldChannels=%i oldLatency=%i"),
+			OutputRate,
+			UseStereo,
+			Channels,
+			Latency );
+		OutputRate = Max<BYTE>( OutputRate, 3 );
+		UseStereo = 1;
+		Channels  = Max<INT>( Channels, 8 );
+		Latency   = Max<INT>( Latency, 20 );
+	}
+#endif
+
 	// Initialize Unreal Audio library.
 	guard(InitAudio);
 	OutputMode = AUDIO_16BIT;
@@ -138,6 +209,15 @@ UBOOL UGenericAudioSubsystem::Init()
 	OutputMode |= AUDIO_2DAUDIO;
 	INT Rates[] = {8000, 11025, 16000, 22050, 32000, 44100, 48000};
 	INT Rate = Rates[OutputRate];
+#if PLATFORM_ANDROID
+	debugf( NAME_Init, TEXT("UT99_ANDROID_V211_AUDIO_CONFIG rate=%i rateIndex=%i stereo=%i channels=%i latency=%i mode=0x%08x"),
+		Rate,
+		OutputRate,
+		UseStereo,
+		Channels,
+		Latency,
+		OutputMode );
+#endif
 	if (AudioInit( Rate, OutputMode, Latency ) == 0)
 		return false;
 	unguard;
@@ -192,7 +272,7 @@ void UGenericAudioSubsystem::SetViewport( UViewport* InViewport )
 				OutputRate = 1;
 			else if (OutputRate == 2)
 				OutputRate = 3;
-			else if ((OutputRate == 4) || (OutputRate = 6))
+			else if ((OutputRate == 4) || (OutputRate == 6))
 				OutputRate = 5;
 			*/
 			INT Rates[] = {8000, 11025, 16000, 22050, 32000, 44100, 48000};
@@ -310,9 +390,45 @@ UBOOL UGenericAudioSubsystem::PlaySound
 )
 {
 	guard(UGenericAudioSubsystem::PlaySound);
-	check(Radius);
-	if( !Viewport || !Sound )
+	static INT PlaySoundTraceCount = 0;
+	if( PlaySoundTraceCount++ < 16 )
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V214_AUDIO_PLAYSOUND_ENTRY viewport=0x%08x viewportActor=0x%08x actor=0x%08x id=%i sound=0x%08x radius=%f pitch=%f"),
+			(DWORD)(QWORD)Viewport,
+			Viewport ? (DWORD)(QWORD)Viewport->Actor : 0,
+			(DWORD)(QWORD)Actor,
+			Id,
+			(DWORD)(QWORD)Sound,
+			Radius,
+			Pitch );
+	if( !Viewport || !IsKnownAudioActorPointer(Viewport->Actor) || !Sound || Sound==(USound*)-1 )
 		return 0;
+	if( Actor && !IsKnownAudioActorPointer(Actor) )
+	{
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V213_AUDIO_PLAYSOUND_BAD_ACTOR actor=0x%08x id=%i sound=0x%08x"),
+			(DWORD)(QWORD)Actor,
+			Id,
+			(DWORD)(QWORD)Sound );
+		Actor = NULL;
+	}
+	if( !IsKnownAudioSoundPointer(Sound) )
+	{
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V213_AUDIO_PLAYSOUND_BAD_SOUND actor=0x%08x id=%i sound=0x%08x"),
+			(DWORD)(QWORD)Actor,
+			Id,
+			(DWORD)(QWORD)Sound );
+		return 0;
+	}
+	if( Radius <= 1.f )
+		Radius = 1600.f;
+	if( Pitch <= 0.01f )
+	{
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V217_AUDIO_PITCH_FIX id=%i oldPitch=%f actor=0x%08x sound=0x%08x"),
+			Id,
+			Pitch,
+			(DWORD)(QWORD)Actor,
+			(DWORD)(QWORD)Sound );
+		Pitch = 1.0f;
+	}
 
 	// Allocate a new slot if requested.
 	if( (Id&14)==2*SLOT_None )
@@ -394,7 +510,7 @@ void UGenericAudioSubsystem::RenderAudioGeometry( FSceneNode* Frame )
 void UGenericAudioSubsystem::Update( FPointRegion Region, FCoords& Coords )
 {
 	guard(UGenericAudioSubsystem::Update);
-	if( !Viewport )
+	if( !Viewport || !IsKnownAudioActorPointer(Viewport->Actor) )
 		return;
 	
 	// Lock to sync sound.
@@ -405,19 +521,31 @@ void UGenericAudioSubsystem::Update( FPointRegion Region, FCoords& Coords )
 	LastTime += DeltaTime;
 	DeltaTime = Clamp<DOUBLE>( DeltaTime, 0.0, 1.0 );
 
-	AActor *ViewActor = Viewport->Actor->ViewTarget?Viewport->Actor->ViewTarget:Viewport->Actor;
+	AActor* ViewActor = (Viewport->Actor->ViewTarget && IsKnownAudioActorPointer(Viewport->Actor->ViewTarget)) ? Viewport->Actor->ViewTarget : Viewport->Actor;
+	ULevel* Level = Viewport->Actor->GetLevel();
+	ALevelInfo* LevelInfo = Viewport->Actor->Level;
+	if( !IsKnownAudioActorPointer(ViewActor) || !IsKnownAudioLevelPointer(Level) || !IsKnownAudioActorPointer(LevelInfo) )
+	{
+		AUnlock;
+		return;
+	}
 
 	// See if any new ambient sounds need to be started.
-	UBOOL Realtime = Viewport->IsRealtime() && Viewport->Actor->Level->Pauser==TEXT("");
+	UBOOL Realtime = Viewport->IsRealtime() && LevelInfo->Pauser==TEXT("");
 	if( Realtime )
 	{
 		guard(StartAmbience);
-		for( INT i=0; i<Viewport->Actor->GetLevel()->Actors.Num(); i++ )
+		for( INT i=0; i<Level->Actors.Num(); i++ )
 		{
-			AActor* Actor = Viewport->Actor->GetLevel()->Actors(i);
+			AActor* Actor = Level->Actors(i);
+			if( Actor && !IsKnownAudioActorPointer(Actor) )
+			{
+				debugf( NAME_Init, TEXT("UT99_ANDROID_V212_AUDIO_SKIP_BAD_ACTOR index=%i actor=0x%08x"), i, (DWORD)(QWORD)Actor );
+				continue;
+			}
 			if
 			(	Actor
-			&&	Actor->AmbientSound
+			&&	IsKnownAudioSoundPointer(Actor->AmbientSound)
 			&&	FDistSquared(ViewActor->Location,Actor->Location)<=Square(Actor->WorldSoundRadius()) )
 			{
 				INT Id = Actor->GetIndex()*16+SLOT_Ambient*2;
@@ -439,7 +567,12 @@ void UGenericAudioSubsystem::Update( FPointRegion Region, FCoords& Coords )
 		FPlayingSound& Playing = PlayingSounds[i];
 		if( (Playing.Id&14)==SLOT_Ambient*2 )
 		{
-			check(Playing.Actor);
+			if( !IsKnownAudioActorPointer(Playing.Actor) || !IsKnownAudioSoundPointer(Playing.Sound) )
+			{
+				debugf( NAME_Init, TEXT("UT99_ANDROID_V212_AUDIO_STOP_BAD_AMBIENT channel=%i actor=0x%08x sound=0x%08x"), i, (DWORD)(QWORD)Playing.Actor, (DWORD)(QWORD)Playing.Sound );
+				StopSound( i );
+				continue;
+			}
 			if
 			(	FDistSquared(ViewActor->Location,Playing.Actor->Location)>Square(Playing.Actor->WorldSoundRadius())
 			||	Playing.Actor->AmbientSound!=Playing.Sound 
@@ -471,8 +604,11 @@ void UGenericAudioSubsystem::Update( FPointRegion Region, FCoords& Coords )
 	for( INT Index=0; Index<Channels; Index++ )
 	{
 		FPlayingSound& Playing = PlayingSounds[Index];
-		if( Playing.Actor )
-			check(Playing.Actor->IsValid());
+		if( Playing.Actor && !IsKnownAudioActorPointer(Playing.Actor) )
+		{
+			debugf( NAME_Init, TEXT("UT99_ANDROID_V212_AUDIO_CLEAR_BAD_PLAYING channel=%i actor=0x%08x"), Index, (DWORD)(QWORD)Playing.Actor );
+			Playing.Actor = NULL;
+		}
 		if( PlayingSounds[Index].Id==0 )
 		{
 			// Sound is not playing.
@@ -485,6 +621,13 @@ void UGenericAudioSubsystem::Update( FPointRegion Region, FCoords& Coords )
 		}
 		else
 		{
+			if( !IsKnownAudioSoundPointer(Playing.Sound) )
+			{
+				debugf( NAME_Init, TEXT("UT99_ANDROID_V212_AUDIO_STOP_BAD_SOUND channel=%i sound=0x%08x"), Index, (DWORD)(QWORD)Playing.Sound );
+				StopSound( Index );
+				continue;
+			}
+
 			// Update positioning from actor, if available.
 			if( Playing.Actor )
 				Playing.Location = Playing.Actor->Location;void UpdateSample( Voice* InVoice, INT Freq, INT Volume, INT Panning );

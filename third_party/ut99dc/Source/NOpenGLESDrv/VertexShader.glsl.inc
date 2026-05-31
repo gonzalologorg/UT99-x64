@@ -1,7 +1,7 @@
 R""(
 
-attribute mediump vec3 aPosition;
-varying mediump vec3 vPosition;
+attribute highp vec3 aPosition;
+varying highp vec3 vPosition;
 #ifdef SF_Texture0
 attribute mediump vec2 aTexCoord0;
 varying mediump vec2 vTexCoord0;

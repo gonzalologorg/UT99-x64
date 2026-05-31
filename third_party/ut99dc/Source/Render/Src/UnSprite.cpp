@@ -23,11 +23,50 @@ static UBOOL IsKnownRenderObject( UObject* Object )
 	unguardSlow;
 }
 
-static UBOOL ValidateRenderObject( AActor* Actor, UObject* Object, const TCHAR* Field, const TCHAR* Context )
+static UObject* RecoverTruncatedRenderObject( UObject* Object, UClass* ExpectedClass )
+{
+	guardSlow(RecoverTruncatedRenderObject);
+#if defined(PLATFORM_64BIT)
+	if( !Object )
+		return NULL;
+	const DWORD LowBits = (DWORD)(QWORD)Object;
+	UObject* Match = NULL;
+	INT MatchCount = 0;
+	for( FObjectIterator It; It; ++It )
+	{
+		UObject* Candidate = *It;
+		if( Candidate && (DWORD)(QWORD)Candidate == LowBits && (!ExpectedClass || Candidate->IsA(ExpectedClass)) )
+		{
+			Match = Candidate;
+			MatchCount++;
+			if( MatchCount > 1 )
+				break;
+		}
+	}
+	if( MatchCount == 1 )
+		return Match;
+#endif
+	return NULL;
+	unguardSlow;
+}
+
+static UObject* ValidateRenderObject( AActor* Actor, UObject* Object, UClass* ExpectedClass, const TCHAR* Field, const TCHAR* Context )
 {
 	guardSlow(ValidateRenderObject);
 	if( IsKnownRenderObject( Object ) )
-		return 1;
+		return Object;
+	UObject* Recovered = RecoverTruncatedRenderObject( Object, ExpectedClass );
+	if( Recovered )
+	{
+		debugf( NAME_Warning, TEXT("UT99_ANDROID_V216_RECOVER_RENDER_OBJECT context=%s actor=%s field=%s old=%p new=%p class=%s"),
+			Context,
+			Actor ? Actor->GetFullName() : TEXT("None"),
+			Field,
+			Object,
+			Recovered,
+			Recovered->GetClass()->GetName() );
+		return Recovered;
+	}
 	debugf( NAME_Warning, TEXT("UT99_ANDROID_V183_BAD_RENDER_OBJECT context=%s actor=%s field=%s object=%p drawType=%i texture=%p sprite=%p mesh=%p skin=%p regionZone=%p"),
 		Context,
 		Actor ? Actor->GetFullName() : TEXT("None"),
@@ -39,7 +78,7 @@ static UBOOL ValidateRenderObject( AActor* Actor, UObject* Object, const TCHAR* 
 		Actor ? Actor->Mesh : NULL,
 		Actor ? Actor->Skin : NULL,
 		Actor ? Actor->Region.Zone : NULL );
-	return 0;
+	return NULL;
 	unguardSlow;
 }
 
@@ -48,15 +87,12 @@ static void SanitizeActorRenderRefs( AActor* Actor, const TCHAR* Context )
 	guardSlow(SanitizeActorRenderRefs);
 	if( !Actor )
 		return;
-	if( !ValidateRenderObject( Actor, Actor->Texture, TEXT("Texture"), Context ) )
-		Actor->Texture = NULL;
-	if( !ValidateRenderObject( Actor, Actor->Sprite, TEXT("Sprite"), Context ) )
-		Actor->Sprite = NULL;
-	if( !ValidateRenderObject( Actor, Actor->Mesh, TEXT("Mesh"), Context ) )
-		Actor->Mesh = NULL;
-	if( !ValidateRenderObject( Actor, Actor->Skin, TEXT("Skin"), Context ) )
-		Actor->Skin = NULL;
-	if( !ValidateRenderObject( Actor, Actor->Region.Zone, TEXT("Region.Zone"), Context ) )
+	Actor->Texture = (UTexture*)ValidateRenderObject( Actor, Actor->Texture, UTexture::StaticClass(), TEXT("Texture"), Context );
+	Actor->Sprite = (UTexture*)ValidateRenderObject( Actor, Actor->Sprite, UTexture::StaticClass(), TEXT("Sprite"), Context );
+	Actor->Mesh = (UMesh*)ValidateRenderObject( Actor, Actor->Mesh, UMesh::StaticClass(), TEXT("Mesh"), Context );
+	Actor->Skin = (UTexture*)ValidateRenderObject( Actor, Actor->Skin, UTexture::StaticClass(), TEXT("Skin"), Context );
+	Actor->Region.Zone = (AZoneInfo*)ValidateRenderObject( Actor, Actor->Region.Zone, AZoneInfo::StaticClass(), TEXT("Region.Zone"), Context );
+	if( !Actor->Region.Zone )
 		Actor->Region.Zone = Actor->XLevel ? Actor->XLevel->GetZoneActor(0) : NULL;
 	unguardSlow;
 }
