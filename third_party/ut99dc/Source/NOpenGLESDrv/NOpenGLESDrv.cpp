@@ -5,6 +5,14 @@
 
 #include "NOpenGLESDrvPrivate.h"
 
+#if PLATFORM_ANDROID
+#ifndef UT99_ANDROID_GLES_TRACE
+#define UT99_ANDROID_GLES_TRACE 0
+#endif
+extern INT GAndroidSDLDrawableX;
+extern INT GAndroidSDLDrawableY;
+#endif
+
 /*-----------------------------------------------------------------------------
 	GLSL shaders.
 -----------------------------------------------------------------------------*/
@@ -258,7 +266,15 @@ void UNOpenGLESRenderDevice::Lock( FPlane FlashScale, FPlane FlashFog, FPlane Sc
 	GAndroidGLESGouraudCount = 0;
 	GAndroidGLESTileCount = 0;
 	if( Viewport )
+	{
+#if PLATFORM_ANDROID
+		const INT DrawableX = GAndroidSDLDrawableX > 0 ? GAndroidSDLDrawableX : Viewport->SizeX;
+		const INT DrawableY = GAndroidSDLDrawableY > 0 ? GAndroidSDLDrawableY : Viewport->SizeY;
+		glViewport( 0, 0, DrawableX, DrawableY );
+#else
 		glViewport( 0, 0, Viewport->SizeX, Viewport->SizeY );
+#endif
+	}
 	glDisable( GL_SCISSOR_TEST );
 
 	glClearColor( ScreenClear.X, ScreenClear.Y, ScreenClear.Z, ScreenClear.W );
@@ -284,6 +300,7 @@ void UNOpenGLESRenderDevice::Lock( FPlane FlashScale, FPlane FlashFog, FPlane Sc
 	if( RenderLockFlags & LOCKR_ClearScreen )
 		ClearBits |= GL_COLOR_BUFFER_BIT;
 	glClear( ClearBits );
+#if PLATFORM_ANDROID && UT99_ANDROID_GLES_TRACE
 	if( GAndroidGLESFrameCounter <= 12 || (GAndroidGLESFrameCounter % 60) == 0 )
 	{
 		GLint GLViewport[4] = {0,0,0,0};
@@ -299,6 +316,7 @@ void UNOpenGLESRenderDevice::Lock( FPlane FlashScale, FPlane FlashFog, FPlane Sc
 			(DWORD)ClearBits,
 			(DWORD)glGetError() );
 	}
+#endif
 
 	if( FlashScale != FPlane(0.5f, 0.5f, 0.5f, 0.0f) || FlashFog != FPlane(0.0f, 0.0f, 0.0f, 0.0f) )
 		ColorMod = FPlane( FlashFog.X, FlashFog.Y, FlashFog.Z, 1.f - Min( FlashScale.X * 2.f, 1.f ) );
@@ -313,14 +331,21 @@ void UNOpenGLESRenderDevice::Unlock( UBOOL Blit )
 	guard(UNOpenGLESRenderDevice::Unlock);
 
 	static INT UnlockCount = 0;
+#if PLATFORM_ANDROID && UT99_ANDROID_GLES_TRACE
 	if( (++UnlockCount % 60) == 0 )
 	{
 		debugf( NAME_Log, TEXT("NOpenGLESDrv: Unlock %d (Blit=%d)"), UnlockCount, Blit );
 	}
+#else
+	++UnlockCount;
+#endif
 
 	FlushTriangles();
 
+#if !PLATFORM_ANDROID
 	glFlush();
+#endif
+#if PLATFORM_ANDROID && UT99_ANDROID_GLES_TRACE
 	if( GAndroidGLESFrameCounter <= 12 || (GAndroidGLESFrameCounter % 60) == 0 )
 		debugf( NAME_Log, TEXT("UT99_ANDROID_V189_GLES_UNLOCK frame=%i blit=%i surfaces=%i gouraud=%i tiles=%i glerr=0x%04x"),
 			GAndroidGLESFrameCounter,
@@ -329,6 +354,7 @@ void UNOpenGLESRenderDevice::Unlock( UBOOL Blit )
 			GAndroidGLESGouraudCount,
 			GAndroidGLESTileCount,
 			(DWORD)glGetError() );
+#endif
 
 	unguard;
 }
@@ -339,35 +365,35 @@ void UNOpenGLESRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo
 	GAndroidGLESSurfaceCount++;
 
 	check(Surface.Texture);
-#if PLATFORM_ANDROID
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V199_DRAWCOMPLEX stage=begin surface=%i poly=0x%08x texture=%p light=%p fog=%p detail=%p facetPolys=%p spanLines=%i"),
-		GAndroidGLESSurfaceCount,
-		Surface.PolyFlags,
-		Surface.Texture,
-		Surface.LightMap,
-		Surface.FogMap,
-		Surface.DetailTexture,
-		Facet.Polys,
-		Facet.Span ? Facet.Span->ValidLines : -1 );
-#endif
+// #if PLATFORM_ANDROID
+// 	debugf( NAME_Log, TEXT("UT99_ANDROID_V199_DRAWCOMPLEX stage=begin surface=%i poly=0x%08x texture=%p light=%p fog=%p detail=%p facetPolys=%p spanLines=%i"),
+// 		GAndroidGLESSurfaceCount,
+// 		Surface.PolyFlags,
+// 		Surface.Texture,
+// 		Surface.LightMap,
+// 		Surface.FogMap,
+// 		Surface.DetailTexture,
+// 		Facet.Polys,
+// 		Facet.Span ? Facet.Span->ValidLines : -1 );
+// #endif
 
 	SetSceneNode( Frame );
 	SetBlend( Surface.PolyFlags );
-#if PLATFORM_ANDROID
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V199_DRAWCOMPLEX stage=before_tex0 surface=%i cache=0x%08x%08x mips=%i size=%ix%i format=%i palette=%p"),
-		GAndroidGLESSurfaceCount,
-		(DWORD)(Surface.Texture->CacheID >> 32),
-		(DWORD)Surface.Texture->CacheID,
-		Surface.Texture->NumMips,
-		Surface.Texture->USize,
-		Surface.Texture->VSize,
-		Surface.Texture->Format,
-		Surface.Texture->Palette );
-#endif
+// #if PLATFORM_ANDROID
+// 	debugf( NAME_Log, TEXT("UT99_ANDROID_V199_DRAWCOMPLEX stage=before_tex0 surface=%i cache=0x%08x%08x mips=%i size=%ix%i format=%i palette=%p"),
+// 		GAndroidGLESSurfaceCount,
+// 		(DWORD)(Surface.Texture->CacheID >> 32),
+// 		(DWORD)Surface.Texture->CacheID,
+// 		Surface.Texture->NumMips,
+// 		Surface.Texture->USize,
+// 		Surface.Texture->VSize,
+// 		Surface.Texture->Format,
+// 		Surface.Texture->Palette );
+// #endif
 	SetTexture( 0, *Surface.Texture, ( Surface.PolyFlags & PF_Masked ), 0.f );
-#if PLATFORM_ANDROID
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V199_DRAWCOMPLEX stage=after_tex0 surface=%i"), GAndroidGLESSurfaceCount );
-#endif
+// #if PLATFORM_ANDROID
+// 	debugf( NAME_Log, TEXT("UT99_ANDROID_V199_DRAWCOMPLEX stage=after_tex0 surface=%i"), GAndroidGLESSurfaceCount );
+// #endif
 	if( !(CurrentShaderFlags & SF_Texture0) )
 	{
 		debugf( NAME_Warning, TEXT("UT99_ANDROID_V202_SKIP_UNTEXTURED_SURFACE surface=%i cache=0x%08x%08x"),
@@ -378,9 +404,9 @@ void UNOpenGLESRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo
 	}
 	if( Surface.LightMap )
 	{
-#if PLATFORM_ANDROID
-		debugf( NAME_Log, TEXT("UT99_ANDROID_V199_DRAWCOMPLEX stage=before_light surface=%i"), GAndroidGLESSurfaceCount );
-#endif
+// #if PLATFORM_ANDROID
+// 		debugf( NAME_Log, TEXT("UT99_ANDROID_V199_DRAWCOMPLEX stage=before_light surface=%i"), GAndroidGLESSurfaceCount );
+// #endif
 		SetTexture( 1, *Surface.LightMap, 0, -0.5f );
 		CurrentShaderFlags |= SF_Lightmap;
 	}
@@ -391,41 +417,41 @@ void UNOpenGLESRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo
 	}
 	if( Surface.DetailTexture && DetailTextures )
 	{
-#if PLATFORM_ANDROID
-		debugf( NAME_Log, TEXT("UT99_ANDROID_V199_DRAWCOMPLEX stage=before_detail surface=%i"), GAndroidGLESSurfaceCount );
-#endif
+// #if PLATFORM_ANDROID
+// 		debugf( NAME_Log, TEXT("UT99_ANDROID_V199_DRAWCOMPLEX stage=before_detail surface=%i"), GAndroidGLESSurfaceCount );
+// #endif
 		SetTexture( 3, *Surface.DetailTexture, 0, 0.f );
 		CurrentShaderFlags |= SF_Detail;
 	}
-#if PLATFORM_ANDROID
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V199_DRAWCOMPLEX stage=before_shader surface=%i flags=0x%08x"), GAndroidGLESSurfaceCount, CurrentShaderFlags );
-#endif
+// #if PLATFORM_ANDROID
+// 	debugf( NAME_Log, TEXT("UT99_ANDROID_V199_DRAWCOMPLEX stage=before_shader surface=%i flags=0x%08x"), GAndroidGLESSurfaceCount, CurrentShaderFlags );
+// #endif
 	SetShader( CurrentShaderFlags );
-#if PLATFORM_ANDROID
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V199_DRAWCOMPLEX stage=after_shader surface=%i"), GAndroidGLESSurfaceCount );
-#endif
+// #if PLATFORM_ANDROID
+// 	debugf( NAME_Log, TEXT("UT99_ANDROID_V199_DRAWCOMPLEX stage=after_shader surface=%i"), GAndroidGLESSurfaceCount );
+// #endif
 
 	FLOAT UDot = Facet.MapCoords.XAxis | Facet.MapCoords.Origin;
 	FLOAT VDot = Facet.MapCoords.YAxis | Facet.MapCoords.Origin;
 	for( FSavedPoly* Poly = Facet.Polys; Poly; Poly = Poly->Next )
 	{
 #if PLATFORM_ANDROID
-		debugf( NAME_Log, TEXT("UT99_ANDROID_V199_DRAWCOMPLEX stage=poly surface=%i node=%i pts=%i"), GAndroidGLESSurfaceCount, Poly->iNode, Poly->NumPts );
+		// debugf( NAME_Log, TEXT("UT99_ANDROID_V199_DRAWCOMPLEX stage=poly surface=%i node=%i pts=%i"), GAndroidGLESSurfaceCount, Poly->iNode, Poly->NumPts );
 		static INT AndroidPolyCoordLogs = 0;
-		if( AndroidPolyCoordLogs++ < 48 && Poly->NumPts > 0 && Poly->Pts[0] )
-		{
-			debugf( NAME_Log, TEXT("UT99_ANDROID_V222_POLY_COORD surface=%i node=%i pts=%i p0=%f,%f,%f sx=%f sy=%f flags=0x%08x shader=0x%08x"),
-				GAndroidGLESSurfaceCount,
-				Poly->iNode,
-				Poly->NumPts,
-				Poly->Pts[0]->Point.X,
-				Poly->Pts[0]->Point.Y,
-				Poly->Pts[0]->Point.Z,
-				Poly->Pts[0]->ScreenX,
-				Poly->Pts[0]->ScreenY,
-				Surface.PolyFlags,
-				CurrentShaderFlags );
-		}
+		// if( AndroidPolyCoordLogs++ < 48 && Poly->NumPts > 0 && Poly->Pts[0] )
+		// {
+		// 	debugf( NAME_Log, TEXT("UT99_ANDROID_V222_POLY_COORD surface=%i node=%i pts=%i p0=%f,%f,%f sx=%f sy=%f flags=0x%08x shader=0x%08x"),
+		// 		GAndroidGLESSurfaceCount,
+		// 		Poly->iNode,
+		// 		Poly->NumPts,
+		// 		Poly->Pts[0]->Point.X,
+		// 		Poly->Pts[0]->Point.Y,
+		// 		Poly->Pts[0]->Point.Z,
+		// 		Poly->Pts[0]->ScreenX,
+		// 		Poly->Pts[0]->ScreenY,
+		// 		Surface.PolyFlags,
+		// 		CurrentShaderFlags );
+		// }
 #endif
 		BeginPoly();
 		for( INT i = 0; i < Poly->NumPts; i++ )
@@ -444,9 +470,9 @@ void UNOpenGLESRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo
 		}
 		EndPoly();
 	}
-#if PLATFORM_ANDROID
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V199_DRAWCOMPLEX stage=end surface=%i"), GAndroidGLESSurfaceCount );
-#endif
+// #if PLATFORM_ANDROID
+// 	debugf( NAME_Log, TEXT("UT99_ANDROID_V199_DRAWCOMPLEX stage=end surface=%i"), GAndroidGLESSurfaceCount );
+// #endif
 
 	CurrentShaderFlags &= ~( SF_Lightmap|SF_Fogmap|SF_Detail );
 
@@ -888,7 +914,17 @@ void UNOpenGLESRenderDevice::SetSceneNode( FSceneNode* Frame )
 			Viewport->SizeX != CurrentSceneNode.SizeX || Viewport->SizeY != CurrentSceneNode.SizeY )
 	{
 		FlushTriangles();
+#if PLATFORM_ANDROID
+		const FLOAT ScaleX = (Viewport->SizeX > 0 && GAndroidSDLDrawableX > 0) ? (FLOAT)GAndroidSDLDrawableX / (FLOAT)Viewport->SizeX : 1.0f;
+		const FLOAT ScaleY = (Viewport->SizeY > 0 && GAndroidSDLDrawableY > 0) ? (FLOAT)GAndroidSDLDrawableY / (FLOAT)Viewport->SizeY : 1.0f;
+		const INT ViewX = appRound( Frame->XB * ScaleX );
+		const INT ViewY = appRound( (Viewport->SizeY - Frame->Y - Frame->YB) * ScaleY );
+		const INT ViewW = Max<INT>( 1, appRound( Frame->X * ScaleX ) );
+		const INT ViewH = Max<INT>( 1, appRound( Frame->Y * ScaleY ) );
+		glViewport( ViewX, ViewY, ViewW, ViewH );
+#else
 		glViewport( Frame->XB, Viewport->SizeY - Frame->Y - Frame->YB, Frame->X, Frame->Y );
+#endif
 		CurrentSceneNode.X = Frame->X;
 		CurrentSceneNode.Y = Frame->Y;
 		CurrentSceneNode.XB = Frame->XB;
@@ -1030,24 +1066,24 @@ void UNOpenGLESRenderDevice::SetTexture( INT TMU, FTextureInfo& Info, DWORD Poly
 {
 	guard(UNOpenGLESRenderDevice::SetTexture);
 #if PLATFORM_ANDROID
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V199_SETTEXTURE stage=begin tmu=%i cache=0x%08x%08x mips=%i size=%ix%i clamp=%ix%i scale=%f,%f format=%i palette=%p data0=%p poly=0x%08x"),
-		TMU,
-		(DWORD)(Info.CacheID >> 32),
-		(DWORD)Info.CacheID,
-		Info.NumMips,
-		Info.USize,
-		Info.VSize,
-		Info.UClamp,
-		Info.VClamp,
-		Info.UScale,
-		Info.VScale,
-		Info.Format,
-		Info.Palette,
-		(Info.Mips[0] ? Info.Mips[0]->DataPtr : NULL),
-		PolyFlags );
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V199_SETTEXTURE stage=begin tmu=%i cache=0x%08x%08x mips=%i size=%ix%i clamp=%ix%i scale=%f,%f format=%i palette=%p data0=%p poly=0x%08x"),
+	// 	TMU,
+	// 	(DWORD)(Info.CacheID >> 32),
+	// 	(DWORD)Info.CacheID,
+	// 	Info.NumMips,
+	// 	Info.USize,
+	// 	Info.VSize,
+	// 	Info.UClamp,
+	// 	Info.VClamp,
+	// 	Info.UScale,
+	// 	Info.VScale,
+	// 	Info.Format,
+	// 	Info.Palette,
+	// 	(Info.Mips[0] ? Info.Mips[0]->DataPtr : NULL),
+	// 	PolyFlags );
 	if( Info.NumMips <= 0 || !Info.Mips[0] || !Info.Mips[0]->DataPtr || Info.USize <= 0 || Info.VSize <= 0 || Info.UScale == 0.0f || Info.VScale == 0.0f )
 	{
-		debugf( NAME_Warning, TEXT("UT99_ANDROID_V199_SETTEXTURE_SKIP_BAD tmu=%i cache=0x%08x%08x"), TMU, (DWORD)(Info.CacheID >> 32), (DWORD)Info.CacheID );
+		// debugf( NAME_Warning, TEXT("UT99_ANDROID_V199_SETTEXTURE_SKIP_BAD tmu=%i cache=0x%08x%08x"), TMU, (DWORD)(Info.CacheID >> 32), (DWORD)Info.CacheID );
 		ResetTexture( TMU );
 		return;
 	}
@@ -1096,11 +1132,11 @@ void UNOpenGLESRenderDevice::SetTexture( INT TMU, FTextureInfo& Info, DWORD Poly
 		// New texture or it has changed, upload it.
 		Info.bRealtimeChanged = 0;
 #if PLATFORM_ANDROID
-		debugf( NAME_Log, TEXT("UT99_ANDROID_V199_SETTEXTURE stage=before_upload tmu=%i new=%i realtime=%i texId=%u"), TMU, !OldBind, RealtimeChanged, Bind->Id );
+		// debugf( NAME_Log, TEXT("UT99_ANDROID_V199_SETTEXTURE stage=before_upload tmu=%i new=%i realtime=%i texId=%u"), TMU, !OldBind, RealtimeChanged, Bind->Id );
 #endif
 		UploadTexture( Info, ( PolyFlags & PF_Masked ), !OldBind );
 #if PLATFORM_ANDROID
-		debugf( NAME_Log, TEXT("UT99_ANDROID_V199_SETTEXTURE stage=after_upload tmu=%i glerr=0x%04x"), TMU, (DWORD)glGetError() );
+		// debugf( NAME_Log, TEXT("UT99_ANDROID_V199_SETTEXTURE stage=after_upload tmu=%i glerr=0x%04x"), TMU, (DWORD)glGetError() );
 #endif
 		// TODO: This depends on PolyFlags, not Info.
 		UpdateTextureFilter( Info, PolyFlags );
@@ -1112,16 +1148,16 @@ void UNOpenGLESRenderDevice::SetTexture( INT TMU, FTextureInfo& Info, DWORD Poly
 void UNOpenGLESRenderDevice::UploadTexture( FTextureInfo& Info, UBOOL Masked, UBOOL NewTexture )
 {
 	guard(UNOpenGLESRenderDevice::UploadTexture);
-#if PLATFORM_ANDROID
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V199_UPLOAD stage=begin cache=0x%08x%08x mips=%i masked=%i new=%i palette=%p format=%i"),
-		(DWORD)(Info.CacheID >> 32),
-		(DWORD)Info.CacheID,
-		Info.NumMips,
-		Masked,
-		NewTexture,
-		Info.Palette,
-		Info.Format );
-#endif
+// #if PLATFORM_ANDROID
+// 	debugf( NAME_Log, TEXT("UT99_ANDROID_V199_UPLOAD stage=begin cache=0x%08x%08x mips=%i masked=%i new=%i palette=%p format=%i"),
+// 		(DWORD)(Info.CacheID >> 32),
+// 		(DWORD)Info.CacheID,
+// 		Info.NumMips,
+// 		Masked,
+// 		NewTexture,
+// 		Info.Palette,
+// 		Info.Format );
+// #endif
 
 	if( !Info.Mips[0] )
 	{
@@ -1142,14 +1178,14 @@ void UNOpenGLESRenderDevice::UploadTexture( FTextureInfo& Info, UBOOL Masked, UB
 	{
 		FMipmapBase* Mip = Info.Mips[MipIndex];
 		if( !Mip || !Mip->DataPtr ) break;
-#if PLATFORM_ANDROID
-		debugf( NAME_Log, TEXT("UT99_ANDROID_V199_UPLOAD stage=mip index=%i size=%ix%i data=%p palette=%p"),
-			MipIndex,
-			Mip->USize,
-			Mip->VSize,
-			Mip->DataPtr,
-			Info.Palette );
-#endif
+// #if PLATFORM_ANDROID
+// 		debugf( NAME_Log, TEXT("UT99_ANDROID_V199_UPLOAD stage=mip index=%i size=%ix%i data=%p palette=%p"),
+// 			MipIndex,
+// 			Mip->USize,
+// 			Mip->VSize,
+// 			Mip->DataPtr,
+// 			Info.Palette );
+// #endif
 		BYTE* UploadBuf;
 		GLenum UploadFormat;
 		// Convert texture if needed.
@@ -1198,16 +1234,16 @@ void UNOpenGLESRenderDevice::UploadTexture( FTextureInfo& Info, UBOOL Masked, UB
 			}
 		}
 		// Upload to GL.
-#if PLATFORM_ANDROID
-		debugf( NAME_Log, TEXT("UT99_ANDROID_V199_UPLOAD stage=before_gl index=%i format=0x%04x upload=%p new=%i"), MipIndex, (DWORD)UploadFormat, UploadBuf, NewTexture );
-#endif
+// #if PLATFORM_ANDROID
+// 		debugf( NAME_Log, TEXT("UT99_ANDROID_V199_UPLOAD stage=before_gl index=%i format=0x%04x upload=%p new=%i"), MipIndex, (DWORD)UploadFormat, UploadBuf, NewTexture );
+// #endif
 		if( NewTexture )
 			glTexImage2D( GL_TEXTURE_2D, MipIndex, UploadFormat, Mip->USize, Mip->VSize, 0, UploadFormat, GL_UNSIGNED_BYTE, (void*)UploadBuf );
 		else
 			glTexSubImage2D( GL_TEXTURE_2D, MipIndex, 0, 0, Mip->USize, Mip->VSize, UploadFormat, GL_UNSIGNED_BYTE, (void*)UploadBuf );
-#if PLATFORM_ANDROID
-		debugf( NAME_Log, TEXT("UT99_ANDROID_V199_UPLOAD stage=after_gl index=%i glerr=0x%04x"), MipIndex, (DWORD)glGetError() );
-#endif
+// #if PLATFORM_ANDROID
+// 		debugf( NAME_Log, TEXT("UT99_ANDROID_V199_UPLOAD stage=after_gl index=%i glerr=0x%04x"), MipIndex, (DWORD)glGetError() );
+// #endif
 	}
 
 	unguard;

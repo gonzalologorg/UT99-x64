@@ -388,12 +388,31 @@ UBOOL UEngine::InputEvent( UViewport* Viewport, EInputKey iKey, EInputAction Sta
 	}
 
 	// Process it.
+	UBOOL bConsoleHandled = 0;
+	UBOOL bInputHandled = 0;
 	if( Viewport->Console && Viewport->Console->eventKeyEvent( iKey, State, Delta ) )
 	{
 		//!! fix for continuous mouse-up events!
 		if( State == IST_Release )
 			Viewport->Input->PreProcess( iKey, State, Delta );
 		// Player console handled it.
+		bConsoleHandled = 1;
+#if PLATFORM_ANDROID
+		static INT AndroidInputTraceCount = 0;
+		if( iKey == IK_Escape || AndroidInputTraceCount < 24 )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V245_INPUT_EVENT key=%i state=%i delta=%f console=1 input=0 actor=%s consoleObj=%s showMenu=%i hud=%s mainMenu=%s"),
+				iKey,
+				State,
+				Delta,
+				Viewport->Actor ? Viewport->Actor->GetFullName() : TEXT("None"),
+				Viewport->Console ? Viewport->Console->GetFullName() : TEXT("None"),
+				Viewport->Actor ? Viewport->Actor->bShowMenu : 0,
+				(Viewport->Actor && Viewport->Actor->myHUD) ? Viewport->Actor->myHUD->GetFullName() : TEXT("None"),
+				(Viewport->Actor && Viewport->Actor->myHUD && Viewport->Actor->myHUD->MainMenu) ? Viewport->Actor->myHUD->MainMenu->GetFullName() : TEXT("None") );
+			AndroidInputTraceCount++;
+		}
+#endif
 		return 1;
 	}
 	else if
@@ -401,10 +420,51 @@ UBOOL UEngine::InputEvent( UViewport* Viewport, EInputKey iKey, EInputAction Sta
 	&&	Viewport->Input->Process( Viewport->Console ? (FOutputDevice&)*Viewport->Console : *GLog, iKey, State, Delta ) )
 	{
 		// Input system handled it.
+		bInputHandled = 1;
+#if PLATFORM_ANDROID
+		static INT AndroidInputTraceCount = 0;
+		if( iKey == IK_Escape || AndroidInputTraceCount < 24 )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V245_INPUT_EVENT key=%i state=%i delta=%f console=0 input=1 actor=%s consoleObj=%s showMenu=%i hud=%s mainMenu=%s"),
+				iKey,
+				State,
+				Delta,
+				Viewport->Actor ? Viewport->Actor->GetFullName() : TEXT("None"),
+				Viewport->Console ? Viewport->Console->GetFullName() : TEXT("None"),
+				Viewport->Actor ? Viewport->Actor->bShowMenu : 0,
+				(Viewport->Actor && Viewport->Actor->myHUD) ? Viewport->Actor->myHUD->GetFullName() : TEXT("None"),
+				(Viewport->Actor && Viewport->Actor->myHUD && Viewport->Actor->myHUD->MainMenu) ? Viewport->Actor->myHUD->MainMenu->GetFullName() : TEXT("None") );
+			AndroidInputTraceCount++;
+		}
+#endif
 		return 1;
 	}
 	else
 	{
+#if PLATFORM_ANDROID
+		static INT AndroidInputTraceCount = 0;
+		if( iKey == IK_Escape || AndroidInputTraceCount < 24 )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V245_INPUT_EVENT key=%i state=%i delta=%f console=%i input=%i actor=%s consoleObj=%s showMenu=%i hud=%s mainMenu=%s"),
+				iKey,
+				State,
+				Delta,
+				bConsoleHandled,
+				bInputHandled,
+				Viewport->Actor ? Viewport->Actor->GetFullName() : TEXT("None"),
+				Viewport->Console ? Viewport->Console->GetFullName() : TEXT("None"),
+				Viewport->Actor ? Viewport->Actor->bShowMenu : 0,
+				(Viewport->Actor && Viewport->Actor->myHUD) ? Viewport->Actor->myHUD->GetFullName() : TEXT("None"),
+				(Viewport->Actor && Viewport->Actor->myHUD && Viewport->Actor->myHUD->MainMenu) ? Viewport->Actor->myHUD->MainMenu->GetFullName() : TEXT("None") );
+			AndroidInputTraceCount++;
+		}
+		if( iKey == IK_Escape && State == IST_Press && Viewport->Actor )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V245_INPUT_FALLBACK_SHOWMENU actor=%s console=%s"), Viewport->Actor->GetFullName(), Viewport->Console ? Viewport->Console->GetFullName() : TEXT("None") );
+			Viewport->Exec( TEXT("ShowMenu"), *GLog );
+			return 1;
+		}
+#endif
 		// Nobody handled it.
 		return 0;
 	}

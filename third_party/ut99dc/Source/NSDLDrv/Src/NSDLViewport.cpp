@@ -4,6 +4,38 @@
 #include "NSDLDrv.h"
 #include "UnRender.h"
 
+#ifndef UT99_ANDROID_VIEWPORT_TRACE
+#define UT99_ANDROID_VIEWPORT_TRACE 0
+#endif
+
+#if PLATFORM_ANDROID
+INT GAndroidSDLDrawableX = 0;
+INT GAndroidSDLDrawableY = 0;
+
+#ifndef UT99_ANDROID_MAX_RENDER_WIDTH
+#define UT99_ANDROID_MAX_RENDER_WIDTH 854
+#endif
+
+#ifndef UT99_ANDROID_MAX_RENDER_HEIGHT
+#define UT99_ANDROID_MAX_RENDER_HEIGHT 480
+#endif
+
+static void AndroidChooseInternalRenderSize( INT OutputX, INT OutputY, INT& RenderX, INT& RenderY )
+{
+	if( OutputX <= 0 || OutputY <= 0 )
+		return;
+
+	FLOAT Scale = 1.0f;
+	if( OutputX > UT99_ANDROID_MAX_RENDER_WIDTH )
+		Scale = Min( Scale, (FLOAT)UT99_ANDROID_MAX_RENDER_WIDTH / (FLOAT)OutputX );
+	if( OutputY > UT99_ANDROID_MAX_RENDER_HEIGHT )
+		Scale = Min( Scale, (FLOAT)UT99_ANDROID_MAX_RENDER_HEIGHT / (FLOAT)OutputY );
+
+	RenderX = Max<INT>( 320, appRound( OutputX * Scale ) );
+	RenderY = Max<INT>( 200, appRound( OutputY * Scale ) );
+}
+#endif
+
 IMPLEMENT_CLASS( UNSDLViewport );
 
 /*-----------------------------------------------------------------------------
@@ -489,8 +521,15 @@ void UNSDLViewport::OpenWindow( DWORD InParentWindow, UBOOL Temporary, INT NewX,
 		if( GetOutputSize( OutputX, OutputY ) && (OutputX != NewX || OutputY != NewY) )
 		{
 			debugf( NAME_Log, TEXT("UT99_ANDROID_V204_VIEWPORT_OUTPUT_SIZE requested=%ix%i output=%ix%i"), NewX, NewY, OutputX, OutputY );
+#if PLATFORM_ANDROID
+			GAndroidSDLDrawableX = OutputX;
+			GAndroidSDLDrawableY = OutputY;
+			AndroidChooseInternalRenderSize( OutputX, OutputY, NewX, NewY );
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V242_INTERNAL_RENDER_SIZE output=%ix%i internal=%ix%i"), OutputX, OutputY, NewX, NewY );
+#else
 			NewX = OutputX;
 			NewY = OutputY;
+#endif
 			if( SDLRen && SDLTex )
 			{
 				SDL_DestroyTexture( SDLTex );
@@ -596,6 +635,21 @@ UBOOL UNSDLViewport::Lock( FPlane FlashScale, FPlane FlashFog, FPlane ScreenClea
 	INT OutputX = 0, OutputY = 0;
 	if( GetOutputSize( OutputX, OutputY ) )
 	{
+#if PLATFORM_ANDROID
+		GAndroidSDLDrawableX = OutputX;
+		GAndroidSDLDrawableY = OutputY;
+		INT TargetX = SizeX;
+		INT TargetY = SizeY;
+		AndroidChooseInternalRenderSize( OutputX, OutputY, TargetX, TargetY );
+		if( TargetX != SizeX || TargetY != SizeY )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V242_INTERNAL_RENDER_RESYNC old=%ix%i output=%ix%i internal=%ix%i"), SizeX, SizeY, OutputX, OutputY, TargetX, TargetY );
+			SizeX = TargetX;
+			SizeY = TargetY;
+			if( RenDev )
+				RenDev->SetRes( SizeX, SizeY, ColorBytes, IsFullscreen() );
+		}
+#else
 		if( OutputX != SizeX || OutputY != SizeY )
 		{
 			debugf( NAME_Log, TEXT("UT99_ANDROID_V206_VIEWPORT_LOCK_RESYNC old=%ix%i output=%ix%i"), SizeX, SizeY, OutputX, OutputY );
@@ -611,6 +665,7 @@ UBOOL UNSDLViewport::Lock( FPlane FlashScale, FPlane FlashFog, FPlane ScreenClea
 				GLCtx != NULL,
 				SDLRen != NULL );
 		}
+#endif
 		OutputSyncTraceCount++;
 	}
 
@@ -729,8 +784,10 @@ void UNSDLViewport::Unlock( UBOOL Blit )
 		{
 
 			SDL_GL_SwapWindow( hWnd );
+#if PLATFORM_ANDROID && UT99_ANDROID_VIEWPORT_TRACE
 			if( UnlockTraceCount <= 12 || (UnlockTraceCount % 60) == 0 )
 				debugf( NAME_Log, TEXT("UT99_ANDROID_V189_VIEWPORT_PRESENT count=%i backend=GL size=%ix%i"), UnlockTraceCount, SizeX, SizeY );
+#endif
 		}
 		else if( SDLRen && SDLTex )
 		{
@@ -738,18 +795,24 @@ void UNSDLViewport::Unlock( UBOOL Blit )
 			SDL_UnlockTexture( SDLTex );
 			SDL_RenderCopy( SDLRen, SDLTex, NULL, NULL );
 			SDL_RenderPresent( SDLRen );
+#if PLATFORM_ANDROID && UT99_ANDROID_VIEWPORT_TRACE
 			if( UnlockTraceCount <= 12 || (UnlockTraceCount % 60) == 0 )
 				debugf( NAME_Log, TEXT("UT99_ANDROID_V189_VIEWPORT_PRESENT count=%i backend=SDL size=%ix%i"), UnlockTraceCount, SizeX, SizeY );
+#endif
 		}
+#if PLATFORM_ANDROID && UT99_ANDROID_VIEWPORT_TRACE
 		else if( UnlockTraceCount <= 12 || (UnlockTraceCount % 60) == 0 )
 		{
 			debugf( NAME_Log, TEXT("UT99_ANDROID_V189_VIEWPORT_PRESENT_SKIPPED count=%i reason=missing_backend GLCtx=%i SDLRen=%i SDLTex=%i"), UnlockTraceCount, GLCtx != NULL, SDLRen != NULL, SDLTex != NULL );
 		}
+#endif
 	}
+#if PLATFORM_ANDROID && UT99_ANDROID_VIEWPORT_TRACE
 	else if( UnlockTraceCount <= 12 || (UnlockTraceCount % 60) == 0 )
 	{
 		debugf( NAME_Log, TEXT("UT99_ANDROID_V189_VIEWPORT_PRESENT_SKIPPED count=%i reason=state Blit=%i hWnd=%i HoldCount=%i"), UnlockTraceCount, Blit, hWnd != NULL, HoldCount );
 	}
+#endif
 
 	unclock(Client->DrawCycles);
 
@@ -789,13 +852,17 @@ void UNSDLViewport::Repaint( UBOOL Blit )
 	guard(UNSDLViewport::Repaint);
 	static INT RepaintTraceCount = 0;
 	RepaintTraceCount++;
+#if PLATFORM_ANDROID && UT99_ANDROID_VIEWPORT_TRACE
 	if( RepaintTraceCount <= 12 || (RepaintTraceCount % 60) == 0 )
 		debugf( NAME_Log, TEXT("UT99_ANDROID_V189_REPAINT begin count=%i blit=%i hold=%i rendev=%i size=%ix%i"),
 			RepaintTraceCount, Blit, HoldCount, RenDev != NULL, SizeX, SizeY );
+#endif
 	if( HoldCount == 0 && RenDev && SizeX && SizeY )
 		Client->Engine->Draw( this, Blit );
+#if PLATFORM_ANDROID && UT99_ANDROID_VIEWPORT_TRACE
 	if( RepaintTraceCount <= 12 || (RepaintTraceCount % 60) == 0 )
 		debugf( NAME_Log, TEXT("UT99_ANDROID_V189_REPAINT done count=%i"), RepaintTraceCount );
+#endif
 	unguard;
 }
 
@@ -819,8 +886,14 @@ void UNSDLViewport::SetClientSize( INT NewX, INT NewY, UBOOL UpdateProfile )
 		{
 			if( OutputX != NewX || OutputY != NewY )
 				debugf( NAME_Log, TEXT("UT99_ANDROID_V204_VIEWPORT_RESIZE_OUTPUT requested=%ix%i output=%ix%i"), NewX, NewY, OutputX, OutputY );
+#if PLATFORM_ANDROID
+			GAndroidSDLDrawableX = OutputX;
+			GAndroidSDLDrawableY = OutputY;
+			AndroidChooseInternalRenderSize( OutputX, OutputY, NewX, NewY );
+#else
 			NewX = OutputX;
 			NewY = OutputY;
+#endif
 		}
 
 		// Resize output texture if required.

@@ -10,6 +10,12 @@
 #include "UnRender.h"
 #include "UnNet.h"
 
+#if PLATFORM_ANDROID
+#ifndef UT99_ANDROID_FRAME_TRACE
+#define UT99_ANDROID_FRAME_TRACE 0
+#endif
+#endif
+
 /*-----------------------------------------------------------------------------
 	URenderDevice.
 -----------------------------------------------------------------------------*/
@@ -260,7 +266,7 @@ void FSceneNode::ComputeRenderCoords( FVector& Location, FRotator& Rotation )
 	:								           GMath.ViewCoords / Rotation) / Location;
 	Uncoords = Coords.Transpose();
 	ComputeRenderSize();
-#if PLATFORM_ANDROID
+#if PLATFORM_ANDROID && UT99_ANDROID_FRAME_TRACE
 	static INT AndroidFrameCoordsLogs = 0;
 	if( AndroidFrameCoordsLogs++ < 16 || (AndroidFrameCoordsLogs % 60) == 0 )
 	{

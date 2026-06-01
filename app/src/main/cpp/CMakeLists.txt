@@ -5,18 +5,17 @@ if(NOT ANDROID)
     message(FATAL_ERROR "This CMake entry point is intended for the Android NDK only.")
 endif()
 
-# Force RelWithDebInfo if not specified, to ensure symbols are generated.
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING "" FORCE)
-endif()
+# Force an optimized symbol build even for Gradle's debug variant. UE1 is very
+# sensitive to -O0 in render/script/audio hot paths.
+set(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING "" FORCE)
 
 # Disable stripping for Android to keep symbols in the libraries.
 set(ANDROID_STRIP_DEBUG OFF)
 
-set(CMAKE_C_FLAGS_DEBUG "-O0 -g")
-set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O0 -g -fno-inline")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -g -fno-inline")
+set(CMAKE_C_FLAGS_DEBUG "-O2 -g")
+set(CMAKE_CXX_FLAGS_DEBUG "-O2 -g")
+set(CMAKE_C_FLAGS_RELWITHDEBINFO "-O2 -g -DNDEBUG")
+set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O2 -g -DNDEBUG")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -51,6 +50,7 @@ endif()
 
 
 add_library(ut99dc_android_bridge SHARED android_bridge.cpp)
+target_include_directories(ut99dc_android_bridge PRIVATE "${SDL2_ROOT}/include")
 target_link_libraries(ut99dc_android_bridge android log)
 
 if(NOT EXISTS "${SDL2_ROOT}/CMakeLists.txt")
@@ -79,6 +79,7 @@ endif()
 
 set(SDL2_INCLUDE_DIR "${SDL2_ROOT}/include" CACHE PATH "" FORCE)
 set(SDL2_LIBRARY ${UT99_ANDROID_SDL_LIB} CACHE STRING "" FORCE)
+target_link_libraries(ut99dc_android_bridge ${UT99_ANDROID_SDL_LIB})
 
 # ut99dc/Source/CMakeLists.txt expects its helper modules via CMAKE_MODULE_PATH.
 # In this Android wrapper CMAKE_SOURCE_DIR points to app/src/main/cpp, not ut99dc/Source,
@@ -89,7 +90,7 @@ list(APPEND CMAKE_MODULE_PATH "${UT99DC_SOURCE_DIR}/cmake")
 # The current ut99dc master has no Source/SoundDrv directory, so keep BUILD_NULLSOUNDDRV OFF
 # for the first Android configure pass. Audio can be added later via SDL/OpenSL ES.
 set(USE_SDL ON CACHE BOOL "" FORCE)
-set(LOW_MEMORY ON CACHE BOOL "" FORCE)
+set(LOW_MEMORY OFF CACHE BOOL "" FORCE)
 set(BUILD_UNREALTOURNAMENT ON CACHE BOOL "" FORCE)
 set(BUILD_EDITOR OFF CACHE BOOL "" FORCE)
 set(BUILD_NOPENGLDRV OFF CACHE BOOL "" FORCE)
@@ -159,4 +160,7 @@ endif()
 # so this Android wrapper must use the same plain signature too.
 if(TARGET UnrealTournament)
     target_link_libraries(UnrealTournament log android dl)
+    if(LIBXMP_LIBRARY)
+        target_link_libraries(UnrealTournament ${LIBXMP_LIBRARY})
+    endif()
 endif()

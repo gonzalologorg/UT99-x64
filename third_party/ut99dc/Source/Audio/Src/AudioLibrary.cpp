@@ -11,6 +11,9 @@ Revision history:
 ------------------------------------------------------------------------------------*/
 
 #include "AudioPrivate.h"
+#if PLATFORM_ANDROID && defined(HAVE_LIBXMP)
+#include "xmp.h"
+#endif
 
 /*------------------------------------------------------------------------------------
 	Globals
@@ -38,6 +41,11 @@ INT		SampleVolume;
 // Threads
 AudioThread		MixingThread;
 AudioMutex		Mutex;
+
+#if PLATFORM_ANDROID && defined(HAVE_LIBXMP)
+static xmp_context GMusicContext = NULL;
+static UBOOL GMusicPlaying = 0;
+#endif
 
 /*------------------------------------------------------------------------------------
 	Library control.
@@ -84,6 +92,7 @@ UBOOL AudioReinit( DWORD Rate, INT OutputMode, INT Latency )
 UBOOL AudioShutdown()
 {
 	AudioInitialized = 0;
+	StopMusicModule();
 	DestroyAudioThread(&MixingThread);	
 	CloseAudio();
 	DestroyAudioMutex(&Mutex);
@@ -129,7 +138,7 @@ UBOOL AudioStopOutput()
 {
 	ALock;
 	AudioPaused = 1;
-	for (INT i=0; i++; i<AUDIO_TOTALVOICES)
+	for (INT i=0; i<AUDIO_TOTALVOICES; i++)
 	{
 		if (Voices[i].State & VOICE_ACTIVE)
 		{
@@ -350,6 +359,123 @@ UBOOL SetSampleVolume( FLOAT Volume )
 UBOOL SetMusicVolume( FLOAT Volume )
 {
 	return 1;
+}
+
+UBOOL LoadMusicModule( void* Data, INT Size, INT Section, const TCHAR* MusicName )
+{
+#if PLATFORM_ANDROID && defined(HAVE_LIBXMP)
+	ALock;
+	StopMusicModule();
+	if( !Data || Size <= 0 )
+	{
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V237_MUSIC_LOAD_SKIP name=%s size=%i"), MusicName ? MusicName : TEXT("None"), Size );
+		AUnlock;
+		return 0;
+	}
+	BYTE* Bytes = (BYTE*)Data;
+	debugf( NAME_Init, TEXT("UT99_ANDROID_V239_MUSIC_LOAD_ENTER name=%s size=%i head=%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x"),
+		MusicName ? MusicName : TEXT("None"),
+		Size,
+		Size > 0 ? Bytes[0] : 0,
+		Size > 1 ? Bytes[1] : 0,
+		Size > 2 ? Bytes[2] : 0,
+		Size > 3 ? Bytes[3] : 0,
+		Size > 4 ? Bytes[4] : 0,
+		Size > 5 ? Bytes[5] : 0,
+		Size > 6 ? Bytes[6] : 0,
+		Size > 7 ? Bytes[7] : 0,
+		Size > 8 ? Bytes[8] : 0,
+		Size > 9 ? Bytes[9] : 0,
+		Size > 10 ? Bytes[10] : 0,
+		Size > 11 ? Bytes[11] : 0,
+		Size > 12 ? Bytes[12] : 0,
+		Size > 13 ? Bytes[13] : 0,
+		Size > 14 ? Bytes[14] : 0,
+		Size > 15 ? Bytes[15] : 0 );
+	GMusicContext = xmp_create_context();
+	if( !GMusicContext )
+	{
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V237_MUSIC_CREATE_FAILED name=%s"), MusicName ? MusicName : TEXT("None") );
+		AUnlock;
+		return 0;
+	}
+	debugf( NAME_Init, TEXT("UT99_ANDROID_V239_MUSIC_CONTEXT_OK name=%s ctx=%p"), MusicName ? MusicName : TEXT("None"), GMusicContext );
+	debugf( NAME_Init, TEXT("UT99_ANDROID_V239_MUSIC_LOAD_BEGIN name=%s size=%i"), MusicName ? MusicName : TEXT("None"), Size );
+	INT LoadResult = xmp_load_module_from_memory( GMusicContext, Data, Size );
+	debugf( NAME_Init, TEXT("UT99_ANDROID_V239_MUSIC_LOAD_DONE name=%s result=%i"), MusicName ? MusicName : TEXT("None"), LoadResult );
+	if( LoadResult != 0 )
+	{
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V237_MUSIC_LOAD_FAILED name=%s size=%i result=%i"), MusicName ? MusicName : TEXT("None"), Size, LoadResult );
+		xmp_free_context( GMusicContext );
+		GMusicContext = NULL;
+		AUnlock;
+		return 0;
+	}
+	debugf( NAME_Init, TEXT("UT99_ANDROID_V239_MUSIC_START_BEGIN name=%s rate=%i"), MusicName ? MusicName : TEXT("None"), AudioRate ? AudioRate : 22050 );
+	INT StartResult = xmp_start_player( GMusicContext, AudioRate ? AudioRate : 22050, 0 );
+	debugf( NAME_Init, TEXT("UT99_ANDROID_V239_MUSIC_START_DONE name=%s result=%i"), MusicName ? MusicName : TEXT("None"), StartResult );
+	if( StartResult != 0 )
+	{
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V237_MUSIC_START_FAILED name=%s rate=%i result=%i"), MusicName ? MusicName : TEXT("None"), AudioRate, StartResult );
+		xmp_release_module( GMusicContext );
+		xmp_free_context( GMusicContext );
+		GMusicContext = NULL;
+		AUnlock;
+		return 0;
+	}
+	if( Section != 255 )
+		xmp_set_position( GMusicContext, Section );
+	GMusicPlaying = 1;
+	debugf( NAME_Init, TEXT("UT99_ANDROID_V237_MUSIC_STARTED name=%s size=%i section=%i rate=%i"), MusicName ? MusicName : TEXT("None"), Size, Section, AudioRate );
+	AUnlock;
+	return 1;
+#else
+	debugf( NAME_Init, TEXT("UT99_ANDROID_V237_MUSIC_UNAVAILABLE name=%s size=%i"), MusicName ? MusicName : TEXT("None"), Size );
+	return 0;
+#endif
+}
+
+UBOOL StopMusicModule()
+{
+#if PLATFORM_ANDROID && defined(HAVE_LIBXMP)
+	if( GMusicContext )
+	{
+		xmp_end_player( GMusicContext );
+		xmp_release_module( GMusicContext );
+		xmp_free_context( GMusicContext );
+		GMusicContext = NULL;
+	}
+	GMusicPlaying = 0;
+#endif
+	return 1;
+}
+
+UBOOL MixMusicBuffer( void* Buffer, INT Size )
+{
+#if PLATFORM_ANDROID && defined(HAVE_LIBXMP)
+	if( !GMusicContext || !GMusicPlaying || !Buffer || Size <= 0 )
+		return 0;
+	INT Result = xmp_play_buffer( GMusicContext, Buffer, Size, 1 );
+	if( Result != 0 )
+	{
+		static INT AndroidMusicMixLogs = 0;
+		if( AndroidMusicMixLogs < 16 || (AndroidMusicMixLogs % 120) == 0 )
+			debugf( NAME_Init, TEXT("UT99_ANDROID_V237_MUSIC_MIX_RESULT count=%i result=%i"), AndroidMusicMixLogs, Result );
+		AndroidMusicMixLogs++;
+	}
+	return 1;
+#else
+	return 0;
+#endif
+}
+
+UBOOL IsMusicModulePlaying()
+{
+#if PLATFORM_ANDROID && defined(HAVE_LIBXMP)
+	return GMusicPlaying;
+#else
+	return 0;
+#endif
 }
 
 UBOOL SetCDAudioVolume( FLOAT Volume )

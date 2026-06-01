@@ -82,7 +82,7 @@ final class UT99Paths {
         }
 
         File maps = new File(root, "Maps");
-        String[] mapFiles = {"CityIntro.unr", "Entry.unr"};
+        String[] mapFiles = {"CityIntro.unr", "Entry.unr", "UT-Logo-Map.unr"};
         for (String name : mapFiles) {
             renameCaseVariantFile(maps, name);
         }
@@ -634,8 +634,8 @@ final class UT99Paths {
                 "Protocol=unreal\n" +
                 "ProtocolDescription=Unreal Protocol\n" +
                 "Name=Player\n" +
-                "Map=CityIntro.unr\n" +
-                "LocalMap=CityIntro.unr\n" +
+                "Map=Entry.unr\n" +
+                "LocalMap=Entry.unr\n" +
                 "Host=\n" +
                 "Portal=\n" +
                 "MapExt=unr\n" +

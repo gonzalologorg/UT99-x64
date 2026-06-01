@@ -711,7 +711,7 @@ void UMusic::Serialize( FArchive& Ar )
 	Ar << FileType;
 	if( Ar.IsLoading() || Ar.IsSaving() )
 	{
-#ifdef PLATFORM_LOW_MEMORY
+#if defined(PLATFORM_LOW_MEMORY) && !PLATFORM_ANDROID
 		// Low memory: read the seek position and skip the data
 		if( Ar.IsLoading() && Ar.Ver() > 61 )
 		{

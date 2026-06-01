@@ -232,12 +232,26 @@ void CloseAudio()
 }
 
 // Audio flow control.
+#ifndef UT99_ANDROID_AUDIO_QUEUE_TRACE
+#define UT99_ANDROID_AUDIO_QUEUE_TRACE 0
+#endif
 void PlayAudio()
 {
 #if PLATFORM_ANDROID
 	if( !SDLAudioDevice || !AudioBuffer || BufferSize <= 0 )
 		return;
+	static INT AndroidPlayAudioLogs = 0;
+	Uint32 QueuedBefore = SDL_GetQueuedAudioSize( SDLAudioDevice );
 	SDL_QueueAudio( SDLAudioDevice, AudioBuffer, BufferSize );
+#if UT99_ANDROID_AUDIO_QUEUE_TRACE
+	if( AndroidPlayAudioLogs < 32 || (AndroidPlayAudioLogs % 120) == 0 )
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V236_AUDIO_PLAY count=%i buffer=%i queuedBefore=%u queuedAfter=%u"),
+			AndroidPlayAudioLogs,
+			BufferSize,
+			QueuedBefore,
+			SDL_GetQueuedAudioSize( SDLAudioDevice ) );
+#endif
+	AndroidPlayAudioLogs++;
 	return;
 #else
 	if (AudioDevice == -1)
@@ -428,8 +442,21 @@ INT AudioWait()
 #if PLATFORM_ANDROID
 	if( SDLAudioDevice && AudioInitialized )
 	{
-		while( SDL_GetQueuedAudioSize( SDLAudioDevice ) > (Uint32)(BufferSize * 3) )
+		static INT AndroidAudioWaitLogs = 0;
+		const Uint32 Queued = SDL_GetQueuedAudioSize( SDLAudioDevice );
+		if( Queued > (Uint32)(BufferSize * 3) )
+		{
+#if UT99_ANDROID_AUDIO_QUEUE_TRACE
+			if( AndroidAudioWaitLogs < 16 || (AndroidAudioWaitLogs % 120) == 0 )
+				debugf( NAME_Init, TEXT("UT99_ANDROID_V236_AUDIO_WAIT count=%i queued=%u limit=%i"),
+					AndroidAudioWaitLogs,
+					Queued,
+					BufferSize * 3 );
+#endif
+			AndroidAudioWaitLogs++;
 			SDL_Delay( 1 );
+			return 0;
+		}
 		return 1;
 	}
 	return 0;

@@ -37,8 +37,8 @@ static inline INT RemapRuntimeScriptOffset( FFrame& Stack, INT Offset )
 	if( Offset==MAXWORD || !Stack.Node )
 		return Offset;
 	INT NativeOffset = Stack.Node->RemapScriptOffset( Offset );
-	if( NativeOffset != Offset )
-		debugf( NAME_Log, TEXT("UT99_ANDROID_V147_OFFSET_REMAP node=%s compat=%i native=%i"), Stack.Node->GetFullName(), Offset, NativeOffset );
+	// if( NativeOffset != Offset )
+	// 	debugf( NAME_Log, TEXT("UT99_ANDROID_V147_OFFSET_REMAP node=%s compat=%i native=%i"), Stack.Node->GetFullName(), Offset, NativeOffset );
 	return NativeOffset;
 }
 
@@ -55,12 +55,12 @@ static inline INT ComputeRuntimeSkipDistance( FFrame& Stack, INT CompatDistance 
 	if( ParsedSkip<Stack.Node->Script.Num() && Stack.Node->Script(ParsedSkip)==EX_EndFunctionParms )
 		ParsedSkip++;
 	INT NativeDistance = ParsedSkip - NativeExprStart;
-	if( NativeDistance>0 && NativeDistance!=CompatDistance )
-		debugf( NAME_Log, TEXT("UT99_ANDROID_V178_SKIP_DISTANCE node=%s compat=%i native=%i exprStart=%i"),
-			Stack.Node->GetFullName(),
-			CompatDistance,
-			NativeDistance,
-			NativeExprStart );
+	// if( NativeDistance>0 && NativeDistance!=CompatDistance )
+	// 	debugf( NAME_Log, TEXT("UT99_ANDROID_V178_SKIP_DISTANCE node=%s compat=%i native=%i exprStart=%i"),
+	// 		Stack.Node->GetFullName(),
+	// 		CompatDistance,
+	// 		NativeDistance,
+	// 		NativeExprStart );
 	return NativeDistance>0 ? NativeDistance : CompatDistance;
 }
 
@@ -3859,6 +3859,9 @@ void UObject::CallFunction( FFrame& Stack, RESULT_DECL, UFunction* Function )
 #if DO_GUARD_SLOW
 	DWORD Cycles=0; clock(Cycles);
 #endif
+#if defined(__ANDROID__) && defined(UT99_ANDROID_SCRIPT_TIMING_TRACE)
+	const DOUBLE AndroidCallStart = appSeconds();
+#endif
 	// Found it.
 	UBOOL SkipIt = 0;
 	if( Function->iNative )
@@ -3920,6 +3923,25 @@ void UObject::CallFunction( FFrame& Stack, RESULT_DECL, UFunction* Function )
 	Function->Cycles += Cycles;
 	Function->Calls++;
 #endif
+#if defined(__ANDROID__) && defined(UT99_ANDROID_SCRIPT_TIMING_TRACE)
+	{
+		static INT AndroidSlowCallCount = 0;
+		const DOUBLE AndroidCallMs = (appSeconds() - AndroidCallStart) * 1000.0;
+		if( AndroidCallMs >= 15.0 && AndroidSlowCallCount < 200 )
+		{
+			AndroidSlowCallCount++;
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V248_SLOW_CALL count=%i ms=%f object=%s function=%s native=%i flags=0x%08x parms=%i props=%i"),
+				AndroidSlowCallCount,
+				AndroidCallMs,
+				GetFullName(),
+				Function ? Function->GetFullName() : TEXT("None"),
+				Function ? Function->iNative : 0,
+				Function ? Function->FunctionFlags : 0,
+				Function ? Function->ParmsSize : 0,
+				Function ? Function->PropertiesSize : 0 );
+		}
+	}
+#endif
 	unguardSlow;
 }
 
@@ -3961,6 +3983,9 @@ void UObject::ProcessInternal( FFrame& Stack, RESULT_DECL )
 void UObject::ProcessEvent( UFunction* Function, void* Parms, void* UnusedResult )
 {
 	guard(UObject::ProcessEvent);
+#if defined(__ANDROID__) && defined(UT99_ANDROID_SCRIPT_TIMING_TRACE)
+	const DOUBLE AndroidEventStart = appSeconds();
+#endif
 
 	// Reject.
 	if
@@ -3996,6 +4021,25 @@ void UObject::ProcessEvent( UFunction* Function, void* Parms, void* UnusedResult
 	if( --GScriptEntryTag == 0 )
 		unclock(GScriptCycles);
 
+#if defined(__ANDROID__) && defined(UT99_ANDROID_SCRIPT_TIMING_TRACE)
+	{
+		static INT AndroidSlowEventCount = 0;
+		const DOUBLE AndroidEventMs = (appSeconds() - AndroidEventStart) * 1000.0;
+		if( AndroidEventMs >= 15.0 && AndroidSlowEventCount < 200 )
+		{
+			AndroidSlowEventCount++;
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V248_SLOW_EVENT count=%i ms=%f object=%s function=%s native=%i flags=0x%08x parms=%i props=%i"),
+				AndroidSlowEventCount,
+				AndroidEventMs,
+				GetFullName(),
+				Function ? Function->GetFullName() : TEXT("None"),
+				Function ? Function->iNative : 0,
+				Function ? Function->FunctionFlags : 0,
+				Function ? Function->ParmsSize : 0,
+				Function ? Function->PropertiesSize : 0 );
+		}
+	}
+#endif
 	unguardf(( TEXT("(%s, %s)"), GetFullName(), Function->GetFullName() ));
 }
 

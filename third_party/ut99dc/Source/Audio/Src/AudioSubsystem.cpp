@@ -13,6 +13,12 @@ Revision history:
 
 #include "AudioPrivate.h"
 
+#if PLATFORM_ANDROID
+#ifndef UT99_ANDROID_AUDIO_FRAME_TRACE
+#define UT99_ANDROID_AUDIO_FRAME_TRACE 0
+#endif
+#endif
+
 /*------------------------------------------------------------------------------------
 	UGenericAudioSubsystem.
 ------------------------------------------------------------------------------------*/
@@ -185,17 +191,21 @@ UBOOL UGenericAudioSubsystem::Init()
 	guard(UGenericAudioSubsystem::Init);
 
 #if PLATFORM_ANDROID
-	if( OutputRate < 3 || !UseStereo || Channels < 8 || Latency < 20 )
+	if( OutputRate < 3 || !UseStereo || Channels < 8 || Latency < 20 || !UseDigitalMusic )
 	{
-		debugf( NAME_Init, TEXT("UT99_ANDROID_V211_AUDIO_DEFAULT_FIX oldRate=%i oldStereo=%i oldChannels=%i oldLatency=%i"),
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V211_AUDIO_DEFAULT_FIX oldRate=%i oldStereo=%i oldChannels=%i oldLatency=%i oldDigital=%i"),
 			OutputRate,
 			UseStereo,
 			Channels,
-			Latency );
+			Latency,
+			UseDigitalMusic );
 		OutputRate = Max<BYTE>( OutputRate, 3 );
 		UseStereo = 1;
 		Channels  = Max<INT>( Channels, 8 );
 		Latency   = Max<INT>( Latency, 20 );
+#if defined(HAVE_LIBXMP)
+		UseDigitalMusic = 1;
+#endif
 	}
 #endif
 
@@ -261,9 +271,27 @@ void UGenericAudioSubsystem::SetViewport( UViewport* InViewport )
 		Viewport = InViewport;
 		if( Viewport )
 		{
+#if PLATFORM_ANDROID
+			debugf( NAME_Init, TEXT("UT99_ANDROID_V238_AUDIO_VIEWPORT_STATE useDigital=%i useCD=%i actor=%s actorSong=%s actorSection=%i transition=%i levelSong=%s levelSection=%i levelCd=%i"),
+				UseDigitalMusic,
+				UseCDMusic,
+				Viewport->Actor ? Viewport->Actor->GetFullName() : TEXT("None"),
+				Viewport->Actor && Viewport->Actor->Song ? Viewport->Actor->Song->GetFullName() : TEXT("None"),
+				Viewport->Actor ? Viewport->Actor->SongSection : -1,
+				Viewport->Actor ? Viewport->Actor->Transition : -1,
+				Viewport->Actor && Viewport->Actor->Level && Viewport->Actor->Level->Song ? Viewport->Actor->Level->Song->GetFullName() : TEXT("None"),
+				Viewport->Actor && Viewport->Actor->Level ? Viewport->Actor->Level->SongSection : -1,
+				Viewport->Actor && Viewport->Actor->Level ? Viewport->Actor->Level->CdTrack : -1 );
+#endif
 			// Determine startup parameters.
 			if( Viewport->Actor->Song && Viewport->Actor->Transition==MTRAN_None )
+			{
 				Viewport->Actor->Transition = MTRAN_Instant;
+#if PLATFORM_ANDROID
+				debugf( NAME_Init, TEXT("UT99_ANDROID_V236_AUDIO_MUSIC_REQUEST song=%s transition=instant note=generic_music_path_not_implemented"),
+					Viewport->Actor->Song->GetFullName() );
+#endif
+			}
 
 			// Start sound output.
 			guard(AudioStartOutput);
@@ -330,6 +358,29 @@ void UGenericAudioSubsystem::RegisterSound( USound* Sound )
 	unguard;
 }
 
+void UGenericAudioSubsystem::RegisterMusic( UMusic* Music )
+{
+	guard(UGenericAudioSubsystem::RegisterMusic);
+	if( !Music || !UseDigitalMusic )
+		return;
+	if( CurrentMusic == Music && IsMusicModulePlaying() )
+		return;
+	Music->Data.Load();
+	INT MusicSize = Music->Data.Num();
+	debugf( NAME_Init, TEXT("UT99_ANDROID_V237_MUSIC_REGISTER name=%s size=%i section=%i useDigital=%i"),
+		Music->GetFullName(),
+		MusicSize,
+		Viewport && Viewport->Actor ? Viewport->Actor->SongSection : -1,
+		UseDigitalMusic );
+	if( MusicSize > 0 && LoadMusicModule( &Music->Data(0), MusicSize, Viewport && Viewport->Actor ? Viewport->Actor->SongSection : 0, Music->GetFullName() ) )
+	{
+		Music->Handle = (void*)1;
+		CurrentMusic = Music;
+	}
+	Music->Data.Unload();
+	unguard;
+}
+
 void UGenericAudioSubsystem::UnregisterSound( USound* Sound )
 {
 	guard(UGenericAudioSubsystem::UnregisterSound);
@@ -352,7 +403,12 @@ void UGenericAudioSubsystem::UnregisterSound( USound* Sound )
 void UGenericAudioSubsystem::UnregisterMusic( UMusic* Music )
 {
 	guard(UGenericAudioSubsystem::UnregisterMusic);
-
+	if( Music && Music == CurrentMusic )
+	{
+		StopMusicModule();
+		Music->Handle = NULL;
+		CurrentMusic = NULL;
+	}
 	unguard;
 }
 
@@ -467,7 +523,24 @@ UBOOL UGenericAudioSubsystem::PlaySound
 	// Put the sound on the play-list.
 	StopSound( Index );
 	if( Sound!=(USound*)-1 )
+	{
 		PlayingSounds[Index] = FPlayingSound( Actor, Id, Sound, Location, Volume, Radius, Pitch, Priority );
+#if PLATFORM_ANDROID
+		static INT AndroidAudioAcceptLogs = 0;
+		if( AndroidAudioAcceptLogs < 32 || (AndroidAudioAcceptLogs % 120) == 0 )
+			debugf( NAME_Init, TEXT("UT99_ANDROID_V236_AUDIO_ACCEPT count=%i index=%i id=%i sound=%s actor=%s priority=%f volume=%f radius=%f pitch=%f"),
+				AndroidAudioAcceptLogs,
+				Index,
+				Id,
+				Sound->GetFullName(),
+				Actor ? Actor->GetFullName() : TEXT("None"),
+				Priority,
+				Volume,
+				Radius,
+				Pitch );
+		AndroidAudioAcceptLogs++;
+#endif
+	}
 	return 1;
 
 	unguard;
@@ -512,6 +585,12 @@ void UGenericAudioSubsystem::Update( FPointRegion Region, FCoords& Coords )
 	guard(UGenericAudioSubsystem::Update);
 	if( !Viewport || !IsKnownAudioActorPointer(Viewport->Actor) )
 		return;
+#if PLATFORM_ANDROID
+	static INT AndroidAudioUpdateLogs = 0;
+	INT AndroidAudioActiveIds = 0;
+	INT AndroidAudioActiveChannels = 0;
+	INT AndroidAudioStarted = 0;
+#endif
 	
 	// Lock to sync sound.
 	ALock;
@@ -529,6 +608,45 @@ void UGenericAudioSubsystem::Update( FPointRegion Region, FCoords& Coords )
 		AUnlock;
 		return;
 	}
+
+#if PLATFORM_ANDROID
+#if UT99_ANDROID_AUDIO_FRAME_TRACE
+	static INT AndroidMusicStateLogs = 0;
+	if( AndroidMusicStateLogs < 32 || (AndroidMusicStateLogs % 120) == 0 )
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V238_AUDIO_MUSIC_STATE count=%i useDigital=%i actorSong=%s actorSection=%i transition=%i levelSong=%s levelSection=%i levelCd=%i current=%s"),
+			AndroidMusicStateLogs,
+			UseDigitalMusic,
+			Viewport->Actor->Song ? Viewport->Actor->Song->GetFullName() : TEXT("None"),
+			Viewport->Actor->SongSection,
+			Viewport->Actor->Transition,
+			LevelInfo->Song ? LevelInfo->Song->GetFullName() : TEXT("None"),
+			LevelInfo->SongSection,
+			LevelInfo->CdTrack,
+			CurrentMusic ? CurrentMusic->GetFullName() : TEXT("None") );
+	AndroidMusicStateLogs++;
+#endif
+	if( UseDigitalMusic && !Viewport->Actor->Song && LevelInfo->Song )
+	{
+		Viewport->Actor->Song = LevelInfo->Song;
+		Viewport->Actor->SongSection = LevelInfo->SongSection;
+		Viewport->Actor->CdTrack = LevelInfo->CdTrack;
+		Viewport->Actor->Transition = MTRAN_Fade;
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V237_MUSIC_RESTORE_FROM_LEVEL song=%s section=%i cd=%i"),
+			LevelInfo->Song ? LevelInfo->Song->GetFullName() : TEXT("None"),
+			LevelInfo->SongSection,
+			LevelInfo->CdTrack );
+	}
+	if( UseDigitalMusic && Viewport->Actor->Song && (Viewport->Actor->Transition != MTRAN_None || Viewport->Actor->Song != CurrentMusic) )
+	{
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V237_MUSIC_TRANSITION song=%s section=%i transition=%i current=%s"),
+			Viewport->Actor->Song->GetFullName(),
+			Viewport->Actor->SongSection,
+			Viewport->Actor->Transition,
+			CurrentMusic ? CurrentMusic->GetFullName() : TEXT("None") );
+		RegisterMusic( Viewport->Actor->Song );
+		Viewport->Actor->Transition = MTRAN_None;
+	}
+#endif
 
 	// See if any new ambient sounds need to be started.
 	UBOOL Realtime = Viewport->IsRealtime() && LevelInfo->Pauser==TEXT("");
@@ -614,7 +732,12 @@ void UGenericAudioSubsystem::Update( FPointRegion Region, FCoords& Coords )
 			// Sound is not playing.
 			continue;
 		}
-		else if( Playing.Channel && SampleFinished(Playing.Channel) )
+#if PLATFORM_ANDROID
+		AndroidAudioActiveIds++;
+		if( Playing.Channel )
+			AndroidAudioActiveChannels++;
+#endif
+		if( Playing.Channel && SampleFinished(Playing.Channel) )
 		{
 			// Sound is finished.
 			StopSound( Index );
@@ -686,16 +809,48 @@ void UGenericAudioSubsystem::Update( FPointRegion Region, FCoords& Coords )
 				// Start this new sound.
 				guard(StartSample);
 				if( !Playing.Channel ) 
+				{
 					Playing.Channel = StartSample
 						( Index+1, Sample, 
 						  (INT) (Sample->SamplesPerSec * Playing.Pitch * Doppler), 
 						  SoundVolume, SoundPan );
+#if PLATFORM_ANDROID
+					AndroidAudioStarted++;
+					static INT AndroidAudioStartLogs = 0;
+					if( AndroidAudioStartLogs < 32 || (AndroidAudioStartLogs % 120) == 0 )
+						debugf( NAME_Init, TEXT("UT99_ANDROID_V236_AUDIO_START_SAMPLE count=%i index=%i id=%i sample=%p freq=%i volume=%i pan=%i channel=%p sound=%s"),
+							AndroidAudioStartLogs,
+							Index,
+							Playing.Id,
+							Sample,
+							Sample ? (INT)(Sample->SamplesPerSec * Playing.Pitch * Doppler) : 0,
+							SoundVolume,
+							SoundPan,
+							Playing.Channel,
+							Playing.Sound ? Playing.Sound->GetFullName() : TEXT("None") );
+					AndroidAudioStartLogs++;
+#endif
+				}
 				check(Playing.Channel);
 				unguard;
 			}
 		}
 	}
 	unguard;
+#if PLATFORM_ANDROID
+#if UT99_ANDROID_AUDIO_FRAME_TRACE
+	if( AndroidAudioUpdateLogs < 32 || (AndroidAudioUpdateLogs % 120) == 0 )
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V236_AUDIO_UPDATE count=%i realtime=%i activeIds=%i activeChannels=%i started=%i viewActor=%s levelActors=%i"),
+			AndroidAudioUpdateLogs,
+			Realtime,
+			AndroidAudioActiveIds,
+			AndroidAudioActiveChannels,
+			AndroidAudioStarted,
+			ViewActor ? ViewActor->GetFullName() : TEXT("None"),
+			Level ? Level->Actors.Num() : -1 );
+	AndroidAudioUpdateLogs++;
+#endif
+#endif
 
 	// Unlock.
 	AUnlock;

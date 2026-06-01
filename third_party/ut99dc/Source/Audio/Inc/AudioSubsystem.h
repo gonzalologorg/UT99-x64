@@ -130,7 +130,7 @@ class DLL_EXPORT_CLASS UGenericAudioSubsystem : public UAudioSubsystem
 	UBOOL PlaySound( AActor* Actor, INT Id, USound* Sound, FVector Location, FLOAT Volume, FLOAT Radius, FLOAT Pitch );
 	void NoteDestroy( AActor* Actor );
 	void RegisterSound( USound* Sound );
-	void RegisterMusic( UMusic* Music ) {};
+	void RegisterMusic( UMusic* Music );
 	UBOOL GetLowQualitySetting() {return 0;}
 	UViewport* GetViewport();
 	void RenderAudioGeometry( FSceneNode* Frame );

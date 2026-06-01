@@ -834,7 +834,7 @@ private:
 			);
 			Export._Object->SetLinker( this, Index );
 			GObjLoaded.AddItem( Export._Object );
-			debugfSlow( NAME_DevLoad, TEXT("Created %s"), Export._Object->GetFullName() );
+			// debugfSlow( NAME_DevLoad, TEXT("Created %s"), Export._Object->GetFullName() );
 
 			// If it's a struct or class, set its parent.
 			if( Export._Object->IsA(UStruct::StaticClass()) && Export.SuperIndex!=0 )

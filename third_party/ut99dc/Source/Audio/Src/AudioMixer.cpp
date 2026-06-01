@@ -29,6 +29,7 @@ void* DoSound(void* Arguments)
 	AUnlock;
 
 	INT Task = SOUND_MIXING, i;
+	UBOOL HasMixedAudio = 0;
 	while (MixingThread.Valid)
 	{
 		switch (Task)
@@ -37,11 +38,13 @@ void* DoSound(void* Arguments)
 				ALock;
 				// Empty the mixing buffer.
 				appMemset(MixBuffer, 0, BufferSize);
+				HasMixedAudio = MixMusicBuffer( MixBuffer, BufferSize );
 				for (i=0; i<AUDIO_TOTALVOICES; i++)
 				{
 					// Get an enabled and active voice.
 					if ((Voices[i].State&VOICE_ENABLED) && (Voices[i].State&VOICE_ACTIVE) && !AudioPaused)
 					{
+						HasMixedAudio = 1;
 						// Mix a buffer's worth of sound.
 						INT Format = Voices[i].pSample->Type & SAMPLE_16BIT 
 							? SAMPLE_16BIT : SAMPLE_8BIT;
@@ -59,6 +62,11 @@ void* DoSound(void* Arguments)
 					}
 				}
 				AUnlock;
+				if( !HasMixedAudio )
+				{
+					AudioSleep( 10 );
+					break;
+				}
 				Task = SOUND_PLAYING;
 				break;
 			case SOUND_PLAYING:

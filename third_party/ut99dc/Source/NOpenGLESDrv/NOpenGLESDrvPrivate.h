@@ -189,28 +189,28 @@ private:
 			const INT VertexBytes = (BYTE*)VtxDataPtr - (BYTE*)VtxData;
 #if PLATFORM_ANDROID
 			static INT AndroidFlushLogCount = 0;
-			const UBOOL AndroidDoLog = AndroidFlushLogCount < 32 || ((AndroidFlushLogCount % 60) == 0);
+			const UBOOL AndroidDoLog = false;// AndroidFlushLogCount < 32 || ((AndroidFlushLogCount % 60) == 0);
 			AndroidFlushLogCount++;
 			if( AndroidDoLog )
-				debugf( NAME_Log, TEXT("UT99_ANDROID_V197_GLES_FLUSH_BEGIN count=%i useVBO=%i idxCount=%i idxElems=%i vtxFloats=%i vtxBytes=%i vtxCap=%i idxCap=%i shader=0x%08x poly=0x%08x glerr=0x%04x"),
-					AndroidFlushLogCount,
-					UseVAO,
-					IdxCount,
-					IndexElems,
-					VertexFloats,
-					VertexBytes,
-					VtxDataSize,
-					IdxDataSize,
-					ShaderInfo ? ShaderInfo->Flags : 0,
-					CurrentPolyFlags,
-					(DWORD)glGetError() );
+				// debugf( NAME_Log, TEXT("UT99_ANDROID_V197_GLES_FLUSH_BEGIN count=%i useVBO=%i idxCount=%i idxElems=%i vtxFloats=%i vtxBytes=%i vtxCap=%i idxCap=%i shader=0x%08x poly=0x%08x glerr=0x%04x"),
+				// 	AndroidFlushLogCount,
+				// 	UseVAO,
+				// 	IdxCount,
+				// 	IndexElems,
+				// 	VertexFloats,
+				// 	VertexBytes,
+				// 	VtxDataSize,
+				// 	IdxDataSize,
+				// 	ShaderInfo ? ShaderInfo->Flags : 0,
+				// 	CurrentPolyFlags,
+				// 	(DWORD)glGetError() );
 			if( IdxDataPtr > IdxDataEnd || VtxDataPtr > VtxDataEnd )
 			{
-				debugf( NAME_Warning, TEXT("UT99_ANDROID_V197_GLES_FLUSH_OVERFLOW idxElems=%i idxCap=%i vtxFloats=%i vtxCap=%i"),
-					IndexElems,
-					IdxDataSize,
-					VertexFloats,
-					VtxDataSize );
+				// debugf( NAME_Warning, TEXT("UT99_ANDROID_V197_GLES_FLUSH_OVERFLOW idxElems=%i idxCap=%i vtxFloats=%i vtxCap=%i"),
+				// 	IndexElems,
+				// 	IdxDataSize,
+				// 	VertexFloats,
+				// 	VtxDataSize );
 				IdxCount = 0;
 				VtxDataPtr = VtxData;
 				IdxDataPtr = IdxData;

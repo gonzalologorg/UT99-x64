@@ -1,5 +1,6 @@
 #include <jni.h>
 #include <android/log.h>
+#include "SDL.h"
 #include <unistd.h>
 #include <sys/stat.h>
 #include <cstdlib>
@@ -10,6 +11,104 @@
 #define LOG_TAG "UT99Bridge"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+
+static SDL_Scancode android_key_to_sdl_scancode(int keyCode) {
+    if (keyCode >= 29 && keyCode <= 54) {
+        return static_cast<SDL_Scancode>(SDL_SCANCODE_A + (keyCode - 29));
+    }
+    if (keyCode >= 8 && keyCode <= 16) {
+        return static_cast<SDL_Scancode>(SDL_SCANCODE_1 + (keyCode - 8));
+    }
+    switch (keyCode) {
+        case 7:   return SDL_SCANCODE_0; // KEYCODE_0
+        case 4:   // KEYCODE_BACK
+        case 82:  // KEYCODE_MENU
+        case 111: // KEYCODE_ESCAPE
+        case 108: // KEYCODE_BUTTON_START
+        case 109: // KEYCODE_BUTTON_SELECT
+        case 110: // KEYCODE_BUTTON_MODE
+            return SDL_SCANCODE_ESCAPE;
+        case 19:  return SDL_SCANCODE_UP;
+        case 20:  return SDL_SCANCODE_DOWN;
+        case 21:  return SDL_SCANCODE_LEFT;
+        case 22:  return SDL_SCANCODE_RIGHT;
+        case 23:  // KEYCODE_DPAD_CENTER
+        case 66:  // KEYCODE_ENTER
+        case 96:  // KEYCODE_BUTTON_A
+            return SDL_SCANCODE_RETURN;
+        case 97:  return SDL_SCANCODE_ESCAPE; // KEYCODE_BUTTON_B
+        case 62:  return SDL_SCANCODE_SPACE;
+        case 61:  return SDL_SCANCODE_TAB;
+        case 67:  return SDL_SCANCODE_BACKSPACE;
+        case 112: return SDL_SCANCODE_DELETE;
+        case 92:  return SDL_SCANCODE_PAGEUP;
+        case 93:  return SDL_SCANCODE_PAGEDOWN;
+        case 122: return SDL_SCANCODE_HOME;
+        case 123: return SDL_SCANCODE_END;
+        case 69:  return SDL_SCANCODE_MINUS;
+        case 70:  return SDL_SCANCODE_EQUALS;
+        case 71:  return SDL_SCANCODE_LEFTBRACKET;
+        case 72:  return SDL_SCANCODE_RIGHTBRACKET;
+        case 73:  return SDL_SCANCODE_BACKSLASH;
+        case 74:  return SDL_SCANCODE_SEMICOLON;
+        case 75:  return SDL_SCANCODE_APOSTROPHE;
+        case 55:  return SDL_SCANCODE_COMMA;
+        case 56:  return SDL_SCANCODE_PERIOD;
+        case 76:  return SDL_SCANCODE_SLASH;
+        case 59:  return SDL_SCANCODE_LSHIFT;
+        case 60:  return SDL_SCANCODE_RSHIFT;
+        case 113: return SDL_SCANCODE_LCTRL;
+        case 114: return SDL_SCANCODE_RCTRL;
+        case 57:  return SDL_SCANCODE_LALT;
+        case 58:  return SDL_SCANCODE_RALT;
+        case 99:  return SDL_SCANCODE_N;      // KEYCODE_BUTTON_X
+        case 100: return SDL_SCANCODE_Y;      // KEYCODE_BUTTON_Y
+        default:  return SDL_SCANCODE_UNKNOWN;
+    }
+}
+
+static int android_key_to_sdl_controller_button(int keyCode) {
+    switch (keyCode) {
+        case 96:  return SDL_CONTROLLER_BUTTON_A;
+        case 97:  return SDL_CONTROLLER_BUTTON_B;
+        case 99:  return SDL_CONTROLLER_BUTTON_X;
+        case 100: return SDL_CONTROLLER_BUTTON_Y;
+        case 109: return SDL_CONTROLLER_BUTTON_BACK;
+        case 110: return SDL_CONTROLLER_BUTTON_GUIDE;
+        case 108: return SDL_CONTROLLER_BUTTON_START;
+        case 102: return SDL_CONTROLLER_BUTTON_LEFTSHOULDER;
+        case 103: return SDL_CONTROLLER_BUTTON_RIGHTSHOULDER;
+        case 19:  return SDL_CONTROLLER_BUTTON_DPAD_UP;
+        case 20:  return SDL_CONTROLLER_BUTTON_DPAD_DOWN;
+        case 21:  return SDL_CONTROLLER_BUTTON_DPAD_LEFT;
+        case 22:  return SDL_CONTROLLER_BUTTON_DPAD_RIGHT;
+        default:  return SDL_CONTROLLER_BUTTON_INVALID;
+    }
+}
+
+static void push_android_button_event(int keyCode, bool down) {
+    SDL_Scancode scancode = android_key_to_sdl_scancode(keyCode);
+    if (scancode != SDL_SCANCODE_UNKNOWN) {
+        SDL_Event event;
+        SDL_memset(&event, 0, sizeof(event));
+        event.type = down ? SDL_KEYDOWN : SDL_KEYUP;
+        event.key.state = down ? SDL_PRESSED : SDL_RELEASED;
+        event.key.repeat = 0;
+        event.key.keysym.scancode = scancode;
+        event.key.keysym.sym = SDL_GetKeyFromScancode(scancode);
+        SDL_PushEvent(&event);
+    }
+
+    int button = android_key_to_sdl_controller_button(keyCode);
+    if (button != SDL_CONTROLLER_BUTTON_INVALID) {
+        SDL_Event event;
+        SDL_memset(&event, 0, sizeof(event));
+        event.type = down ? SDL_CONTROLLERBUTTONDOWN : SDL_CONTROLLERBUTTONUP;
+        event.cbutton.state = down ? SDL_PRESSED : SDL_RELEASED;
+        event.cbutton.button = static_cast<Uint8>(button);
+        SDL_PushEvent(&event);
+    }
+}
 
 static bool mkdir_p(const char* path) {
     if (!path || !*path) {
@@ -162,4 +261,45 @@ Java_com_ast_ut99_MainActivity_nativePrepareProcess(
         jstring dataRootString,
         jstring homeDirString) {
     return prepare_process_common(env, dataRootString, homeDirString);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_ast_ut99_GameActivity_nativeAndroidButtonV47(
+        JNIEnv*,
+        jclass,
+        jint keyCode,
+        jboolean down) {
+    static int logCount = 0;
+    if (logCount < 16 || (logCount % 120) == 0) {
+        LOGI("UT99_ANDROID_V240_NATIVE_BUTTON key=%d down=%d count=%d",
+             static_cast<int>(keyCode),
+             down == JNI_TRUE ? 1 : 0,
+             logCount);
+    }
+    push_android_button_event(static_cast<int>(keyCode), down == JNI_TRUE);
+    if (logCount < 16 || (logCount % 120) == 0) {
+        LOGI("UT99_ANDROID_V243_INPUT_PUSH key=%d down=%d scancode=%d button=%d count=%d",
+             static_cast<int>(keyCode),
+             down == JNI_TRUE ? 1 : 0,
+             static_cast<int>(android_key_to_sdl_scancode(static_cast<int>(keyCode))),
+             static_cast<int>(android_key_to_sdl_controller_button(static_cast<int>(keyCode))),
+             logCount);
+    }
+    ++logCount;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_ast_ut99_GameActivity_nativeAndroidAxisV47(
+        JNIEnv*,
+        jclass,
+        jint axis,
+        jfloat value) {
+    static int logCount = 0;
+    if (logCount < 16 || (logCount % 240) == 0) {
+        LOGI("UT99_ANDROID_V240_NATIVE_AXIS axis=%d value=%f count=%d",
+             static_cast<int>(axis),
+             static_cast<float>(value),
+             logCount);
+    }
+    ++logCount;
 }

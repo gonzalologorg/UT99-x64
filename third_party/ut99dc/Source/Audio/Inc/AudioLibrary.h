@@ -189,6 +189,12 @@ UBOOL SetSampleVolume( FLOAT Volume );
 UBOOL SetMusicVolume( FLOAT Volume );
 UBOOL SetCDAudioVolume( FLOAT Volume );
 
+// Music control.
+UBOOL LoadMusicModule( void* Data, INT Size, INT Section, const TCHAR* MusicName );
+UBOOL StopMusicModule();
+UBOOL MixMusicBuffer( void* Buffer, INT Size );
+UBOOL IsMusicModulePlaying();
+
 // CD Audio control.
 UBOOL StartCDAudio( INT Track );
 UBOOL StopCDAudio();

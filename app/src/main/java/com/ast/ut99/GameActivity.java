@@ -182,7 +182,7 @@ public class GameActivity extends SDLActivity {
             Toast.makeText(this, "UT99 native path setup failed", Toast.LENGTH_LONG).show();
         }
 
-        android.util.Log.i("UT99Android", "UT99_ANDROID_V63_CITYINTRO_AUDIO_SAFE_START direct CityIntro.unr startup");
+        android.util.Log.i("UT99Android", "UT99_ANDROID_V245_FRONTEND_START startup map selected by getArguments()");
         if (androidIniCreatedV86) {
             // UT99_ANDROID_V86_CONFIG_PRESERVE:
             // Apply generated Android defaults only when the Android INI files were
@@ -194,6 +194,7 @@ public class GameActivity extends SDLActivity {
         } else {
             android.util.Log.i("UT99Android", "UT99_ANDROID_V86_CONFIG_PRESERVE keeping existing AndroidUT99.ini/AndroidUser.ini");
         }
+        normalizeUt99V248FrontendPerfConfig();
         applyUt99V65InitialNativeFontScaleConfig(androidIniCreatedV86);
         ut99V64EnsureResolutionScaleConfig();
         super.onCreate(savedInstanceState);
@@ -461,12 +462,24 @@ public class GameActivity extends SDLActivity {
      */
     @Override
     protected String[] getArguments() {
+        String startupMap = chooseUt99StartupMapV244();
         return new String[] {
-                "CityIntro.unr",
+                startupMap,
                 "LOG=UT99Android.log",
                 "INI=AndroidUT99.ini",
                 "USERINI=AndroidUser.ini"
         };
+    }
+
+    private String chooseUt99StartupMapV244() {
+        java.io.File root = getUt99ConfigRootV63();
+        java.io.File maps = root == null ? null : new java.io.File(root, "Maps");
+        String startupMap = "Entry.unr";
+        if (maps != null && new java.io.File(maps, "Entry.unr").isFile()) {
+            startupMap = "Entry.unr";
+        }
+        android.util.Log.i("UT99Android", "UT99_ANDROID_V244_STARTUP_MAP map=" + startupMap);
+        return startupMap;
     }
 
     private void applyUt99V36UWindowConfig() {
@@ -496,20 +509,20 @@ public class GameActivity extends SDLActivity {
                 "\n" +
                 "[UMenu.UnrealConsole]\n" +
                 "RootWindow=UMenu.UMenuRootWindow\n" +
-                "UWindowKey=IK_Esc\n" +
-                "ShowDesktop=True\n" +
+                "UWindowKey=IK_Escape\n" +
+                "ShowDesktop=False\n" +
                 "bShowConsole=False\n" +
                 "\n" +
                 "[UWindow.WindowConsole]\n" +
                 "RootWindow=UMenu.UMenuRootWindow\n" +
-                "UWindowKey=IK_Esc\n" +
-                "ShowDesktop=True\n" +
+                "UWindowKey=IK_Escape\n" +
+                "ShowDesktop=False\n" +
                 "bShowConsole=False\n" +
                 "\n" +
                 "[UTMenu.UTConsole]\n" +
                 "RootWindow=UMenu.UMenuRootWindow\n" +
-                "UWindowKey=IK_Esc\n" +
-                "ShowDesktop=True\n" +
+                "UWindowKey=IK_Escape\n" +
+                "ShowDesktop=False\n" +
                 "bShowConsole=False\n";
         try {
             java.io.FileWriter fw = new java.io.FileWriter(ini, true);
@@ -572,20 +585,20 @@ public class GameActivity extends SDLActivity {
                 "\n" +
                 "[UMenu.UnrealConsole]\n" +
                 "RootWindow=UMenu.UMenuRootWindow\n" +
-                "UWindowKey=IK_Esc\n" +
-                "ShowDesktop=True\n" +
+                "UWindowKey=IK_Escape\n" +
+                "ShowDesktop=False\n" +
                 "bShowConsole=False\n" +
                 "\n" +
                 "[UWindow.WindowConsole]\n" +
                 "RootWindow=UMenu.UMenuRootWindow\n" +
-                "UWindowKey=IK_Esc\n" +
-                "ShowDesktop=True\n" +
+                "UWindowKey=IK_Escape\n" +
+                "ShowDesktop=False\n" +
                 "bShowConsole=False\n" +
                 "\n" +
                 "[UTMenu.UTConsole]\n" +
                 "RootWindow=UMenu.UMenuRootWindow\n" +
-                "UWindowKey=IK_Esc\n" +
-                "ShowDesktop=True\n" +
+                "UWindowKey=IK_Escape\n" +
+                "ShowDesktop=False\n" +
                 "bShowConsole=False\n";
 
         appendTextToFileV40(new java.io.File(systemDir, "AndroidUT99.ini"), inputBlock);
@@ -603,6 +616,46 @@ public class GameActivity extends SDLActivity {
             }
         } catch (java.io.IOException ex) {
             android.util.Log.e("UT99Android", "v40 failed to append config to " + file.getAbsolutePath(), ex);
+        }
+    }
+
+    private void normalizeUt99V248FrontendPerfConfig() {
+        java.io.File root = getUt99ConfigRootV63();
+        if (root == null) return;
+        java.io.File systemDir = new java.io.File(root, "System");
+        String[] names = {"AndroidUT99.ini", "AndroidUser.ini", "UnrealTournament.ini", "Default.ini"};
+        for (String name : names) {
+            java.io.File file = new java.io.File(systemDir, name);
+            if (!file.isFile()) continue;
+            try {
+                java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+                java.io.FileInputStream in = new java.io.FileInputStream(file);
+                try {
+                    byte[] buffer = new byte[8192];
+                    int read;
+                    while ((read = in.read(buffer)) > 0) {
+                        bytes.write(buffer, 0, read);
+                    }
+                } finally {
+                    in.close();
+                }
+                String text = new String(bytes.toByteArray(), "UTF-8");
+                String fixed = text
+                        .replace("UWindowKey=IK_Esc", "UWindowKey=IK_Escape")
+                        .replace("ShowDesktop=True", "ShowDesktop=False")
+                        .replace("ShowDesktop=true", "ShowDesktop=False");
+                if (!fixed.equals(text)) {
+                    java.io.FileOutputStream out = new java.io.FileOutputStream(file, false);
+                    try {
+                        out.write(fixed.getBytes("UTF-8"));
+                    } finally {
+                        out.close();
+                    }
+                    android.util.Log.i("UT99Android", "UT99_ANDROID_V248_FRONTEND_PERF_CONFIG file=" + file.getName());
+                }
+            } catch (Throwable t) {
+                android.util.Log.e("UT99Android", "UT99_ANDROID_V248_FRONTEND_PERF_CONFIG_FAILED file=" + file.getAbsolutePath(), t);
+            }
         }
     }
 
@@ -1012,6 +1065,16 @@ public class GameActivity extends SDLActivity {
                 || ((source & android.view.InputDevice.SOURCE_DPAD) == android.view.InputDevice.SOURCE_DPAD);
     }
 
+    private static boolean isHardwareKeyboardSourceV246(android.view.KeyEvent event) {
+        int source = event.getSource();
+        if ((source & android.view.InputDevice.SOURCE_KEYBOARD) == android.view.InputDevice.SOURCE_KEYBOARD) {
+            return true;
+        }
+        android.view.InputDevice device = event.getDevice();
+        return device != null
+                && device.getKeyboardType() == android.view.InputDevice.KEYBOARD_TYPE_ALPHABETIC;
+    }
+
     private static boolean isOuyaMenuKeyV79(int keyCode) {
         // OUYA's center/system button is reported as KEYCODE_MENU on Android 4.1.2.
         return keyCode == android.view.KeyEvent.KEYCODE_MENU
@@ -1060,11 +1123,24 @@ public class GameActivity extends SDLActivity {
         final int keyCode = event.getKeyCode();
         boolean textDeleteKey = keyCode == android.view.KeyEvent.KEYCODE_DEL
                 || keyCode == android.view.KeyEvent.KEYCODE_FORWARD_DEL;
+        boolean gameControlKey = keyCode == android.view.KeyEvent.KEYCODE_ESCAPE
+                || keyCode == android.view.KeyEvent.KEYCODE_BACK
+                || keyCode == android.view.KeyEvent.KEYCODE_ENTER
+                || keyCode == android.view.KeyEvent.KEYCODE_SPACE
+                || keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP
+                || keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN
+                || keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT
+                || keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT
+                || keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER;
         if (!sUt99V72LoggedActive) {
             sUt99V72LoggedActive = true;
             android.util.Log.i("UT99Android", "UT99_ANDROID_V72_ACTIVE GameActivity single START toggle path loaded");
         }
-        if (isAndroidGamepadSourceV47(event) || isOuyaMenuKeyV79(keyCode) || textDeleteKey) {
+        boolean hardwareKeyboardKey = isHardwareKeyboardSourceV246(event)
+                && keyCode != android.view.KeyEvent.KEYCODE_VOLUME_UP
+                && keyCode != android.view.KeyEvent.KEYCODE_VOLUME_DOWN
+                && keyCode != android.view.KeyEvent.KEYCODE_POWER;
+        if (isAndroidGamepadSourceV47(event) || hardwareKeyboardKey || isOuyaMenuKeyV79(keyCode) || textDeleteKey || gameControlKey) {
             if (action == android.view.KeyEvent.ACTION_DOWN || action == android.view.KeyEvent.ACTION_UP) {
                 if (action == android.view.KeyEvent.ACTION_DOWN && event.getRepeatCount() > 0
                         && (keyCode == android.view.KeyEvent.KEYCODE_BUTTON_START
@@ -1074,7 +1150,11 @@ public class GameActivity extends SDLActivity {
                     return true;
                 }
                 nativeAndroidButtonV47(keyCode, action == android.view.KeyEvent.ACTION_DOWN);
-                android.util.Log.i("UT99Android", "UT99_ANDROID_V72_KEY key=" + keyCode + " down=" + (action == android.view.KeyEvent.ACTION_DOWN));
+                android.util.Log.i("UT99Android", "UT99_ANDROID_V246_KEY key=" + keyCode
+                        + " down=" + (action == android.view.KeyEvent.ACTION_DOWN)
+                        + " keyboard=" + hardwareKeyboardKey
+                        + " gamepad=" + isAndroidGamepadSourceV47(event)
+                        + " source=0x" + Integer.toHexString(event.getSource()));
                 return true;
             }
         }

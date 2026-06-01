@@ -1251,7 +1251,23 @@ EExprToken UStruct::SerializeExpr( INT& iCode, FArchive& Ar )
 	#ifdef PLATFORM_DREAMCAST
 	#define XFER(T) {XferAligned(Ar, (T*)&Script(iCode)); iCode += sizeof(T);}
 	#else
-	#define XFER(T) {INT CompatBytes=ScriptCompatSize((T*)NULL); if(Ar.IsLoading() && GScriptCompatCodeOffset && GScriptCompatCodeLimit && *GScriptCompatCodeOffset+CompatBytes>*GScriptCompatCodeLimit) appErrorf(TEXT("SerializeExpr read past script object=%s nativeCode=%i compatCode=%i read=%i limit=%i scriptBytes=%i"), GetFullName(), iCode, *GScriptCompatCodeOffset, CompatBytes, *GScriptCompatCodeLimit, Script.Num()); if(iCode+(INT)sizeof(T)>Script.Num()) { debugf(NAME_Warning,TEXT("UT99_ANDROID_V188_SCRIPT_PAD_READ object=%s nativeCode=%i compatCode=%i read=%i scriptBytes=%i loading=%i saving=%i"),GetFullName(),iCode,GScriptCompatCodeOffset?*GScriptCompatCodeOffset:iCode,(INT)sizeof(T),Script.Num(),Ar.IsLoading(),Ar.IsSaving()); Script.AddZeroed(iCode+(INT)sizeof(T)-Script.Num()); } Ar << *(T*)&Script(iCode); if(GScriptCompatCodeOffset) {*GScriptCompatCodeOffset += CompatBytes; NoteScriptCompatOffset(*GScriptCompatCodeOffset, iCode+(INT)sizeof(T));} iCode += sizeof(T); }
+	#define XFER(T) \
+	{ \
+		INT CompatBytes=ScriptCompatSize((T*)NULL); \
+		if(Ar.IsLoading() && GScriptCompatCodeOffset && GScriptCompatCodeLimit && *GScriptCompatCodeOffset+CompatBytes>*GScriptCompatCodeLimit) \
+			appErrorf(TEXT("SerializeExpr read past script object=%s nativeCode=%i compatCode=%i read=%i limit=%i scriptBytes=%i"), GetFullName(), iCode, *GScriptCompatCodeOffset, CompatBytes, *GScriptCompatCodeLimit, Script.Num()); \
+		if(iCode+(INT)sizeof(T)>Script.Num()) \
+		{ \
+			Script.AddZeroed(iCode+(INT)sizeof(T)-Script.Num()); \
+		} \
+		Ar << *(T*)&Script(iCode); \
+		if(GScriptCompatCodeOffset) \
+		{ \
+			*GScriptCompatCodeOffset += CompatBytes; \
+			NoteScriptCompatOffset(*GScriptCompatCodeOffset, iCode+(INT)sizeof(T)); \
+		} \
+		iCode += sizeof(T); \
+	}
 	#endif
 
 	// Get expr token.
@@ -1285,15 +1301,15 @@ EExprToken UStruct::SerializeExpr( INT& iCode, FArchive& Ar )
 		}
 		else if( !Ar.IsLoading() && !Ar.IsSaving() )
 		{
-			debugf
-			(
-				NAME_Warning,
-				TEXT("UT99_ANDROID_V174_SCRIPT_EOF_WALK object=%s nativeCode=%i compatCode=%i scriptBytes=%i"),
-				GetFullName(),
-				StartCode,
-				StartCompatCode,
-				Script.Num()
-			);
+			// debugf
+			// (
+			// 	NAME_Warning,
+			// 	TEXT("UT99_ANDROID_V174_SCRIPT_EOF_WALK object=%s nativeCode=%i compatCode=%i scriptBytes=%i"),
+			// 	GetFullName(),
+			// 	StartCode,
+			// 	StartCompatCode,
+			// 	Script.Num()
+			// );
 			GScriptSerializeExprDepth--;
 			return EX_EndFunctionParms;
 		}

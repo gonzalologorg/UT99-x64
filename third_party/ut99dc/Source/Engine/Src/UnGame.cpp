@@ -10,6 +10,12 @@
 #include "UnRender.h"
 #include "UnNet.h"
 
+#if PLATFORM_ANDROID
+#ifndef UT99_ANDROID_FRAME_TRACE
+#define UT99_ANDROID_FRAME_TRACE 0
+#endif
+#endif
+
 /*-----------------------------------------------------------------------------
 	Object class implementation.
 -----------------------------------------------------------------------------*/
@@ -31,12 +37,12 @@ static void MigrateNativePropertyDefaults( UClass* Class, UProperty* Property, I
 			continue;
 		appMemcpy( &TestClass->Defaults(NewOffset), &TestClass->Defaults(OldOffset), Size );
 		appMemzero( &TestClass->Defaults(OldOffset), Size );
-		debugf( NAME_Log, TEXT("UT99_ANDROID_V180_DEFAULT_OFFSET_MIGRATE class=%s property=%s old=%i native=%i size=%i"),
-			TestClass->GetFullName(),
-			Property->GetFullName(),
-			OldOffset,
-			NewOffset,
-			Size );
+		// debugf( NAME_Log, TEXT("UT99_ANDROID_V180_DEFAULT_OFFSET_MIGRATE class=%s property=%s old=%i native=%i size=%i"),
+		// 	TestClass->GetFullName(),
+		// 	Property->GetFullName(),
+		// 	OldOffset,
+		// 	NewOffset,
+		// 	Size );
 	}
 	unguard;
 }
@@ -2121,6 +2127,36 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 {
 	guard(UGameEngine::Draw);
 	static INT DrawTraceCount = 0;
+#if PLATFORM_ANDROID
+	DOUBLE AndroidDrawStart = appSeconds();
+	DOUBLE AndroidAfterLock = AndroidDrawStart;
+	DOUBLE AndroidWorldStart = AndroidDrawStart;
+	DOUBLE AndroidAfterWorld = AndroidDrawStart;
+	DOUBLE AndroidUnlockStart = AndroidDrawStart;
+	DOUBLE AndroidDrawEnd = AndroidDrawStart;
+	DOUBLE AndroidAudioMs = 0.0;
+	DOUBLE AndroidPreMs = 0.0;
+	DOUBLE AndroidActorPreMs = 0.0;
+	DOUBLE AndroidPostMs = 0.0;
+	DOUBLE AndroidActorPostMs = 0.0;
+	DOUBLE AndroidConsolePostMs = 0.0;
+	DOUBLE AndroidAudioPostMs = 0.0;
+	DOUBLE AndroidFinishMs = 0.0;
+	static DOUBLE AndroidAccumLock = 0.0;
+	static DOUBLE AndroidAccumWorld = 0.0;
+	static DOUBLE AndroidAccumUnlock = 0.0;
+	static DOUBLE AndroidAccumAudio = 0.0;
+	static DOUBLE AndroidAccumPre = 0.0;
+	static DOUBLE AndroidAccumActorPre = 0.0;
+	static DOUBLE AndroidAccumPost = 0.0;
+	static DOUBLE AndroidAccumActorPost = 0.0;
+	static DOUBLE AndroidAccumConsolePost = 0.0;
+	static DOUBLE AndroidAccumAudioPost = 0.0;
+	static DOUBLE AndroidAccumFinish = 0.0;
+	static DOUBLE AndroidAccumTotal = 0.0;
+	static DOUBLE AndroidMaxTotal = 0.0;
+	static INT AndroidTimingFrames = 0;
+#endif
 
 	// If not up and running yet, don't draw.
 	if( !GIsRunning )
@@ -2139,6 +2175,7 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 	FVector      ViewLocation = ViewActor->Location;
 	FRotator     ViewRotation = ViewActor->Rotation;
 	static INT AndroidCalcViewTraceCount = 0;
+#if PLATFORM_ANDROID && UT99_ANDROID_FRAME_TRACE
 	if( AndroidCalcViewTraceCount < 24 || (AndroidCalcViewTraceCount % 120) == 0 )
 		debugf( NAME_Log, TEXT("UT99_ANDROID_V221_CALCVIEW_BEFORE count=%i actor=%s loc=%f,%f,%f rot=%i,%i,%i viewTarget=%p"),
 			AndroidCalcViewTraceCount,
@@ -2150,7 +2187,9 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 			ViewRotation.Yaw,
 			ViewRotation.Roll,
 			Viewport->Actor ? Viewport->Actor->ViewTarget : NULL );
+#endif
 	Viewport->Actor->eventPlayerCalcView( ViewActor, ViewLocation, ViewRotation );
+#if PLATFORM_ANDROID && UT99_ANDROID_FRAME_TRACE
 	if( AndroidCalcViewTraceCount < 24 || (AndroidCalcViewTraceCount % 120) == 0 )
 		debugf( NAME_Log, TEXT("UT99_ANDROID_V221_CALCVIEW_AFTER count=%i viewActor=%s loc=%f,%f,%f rot=%i,%i,%i"),
 			AndroidCalcViewTraceCount,
@@ -2161,7 +2200,6 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 			ViewRotation.Pitch,
 			ViewRotation.Yaw,
 			ViewRotation.Roll );
-#if PLATFORM_ANDROID
 	if( AndroidCalcViewTraceCount < 16 )
 	{
 		FCheckResult PointHit(1.0);
@@ -2194,7 +2232,7 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 				Hit.Location.Z,
 				Dir.X,
 				Dir.Y,
-				Dir.Z );
+			Dir.Z );
 		}
 	}
 #endif
@@ -2248,6 +2286,9 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 		debugf( NAME_Log, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE Draw begin count=%i Size=%ix%i Blit=%i LockFlags=0x%08X Actor=%s"), DrawTraceCount, Viewport->SizeX, Viewport->SizeY, Blit, LockFlags, ViewActor ? ViewActor->GetName() : TEXT("None") );
 	if( Viewport->Lock(FlashScale,FlashFog,FPlane(0,0,0,0),LockFlags,HitData,HitSize) )
 	{
+#if PLATFORM_ANDROID
+		AndroidAfterLock = appSeconds();
+#endif
 		// Setup rendering coords.
 		FSceneNode* Frame = Render->CreateMasterFrame( Viewport, ViewLocation, ViewRotation, NULL );
 		static INT AndroidDrawGateTraceCount = 0;
@@ -2255,19 +2296,36 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 		// Update level audio.
 		if( Audio )
 		{
+#if PLATFORM_ANDROID
+			DOUBLE AndroidPhaseStart = appSeconds();
+#endif
 			clock(GLevel->AudioTickCycles);
 			Audio->Update( ViewActor->Region, Frame->Coords );
 			unclock(GLevel->AudioTickCycles);
+#if PLATFORM_ANDROID
+			AndroidAudioMs = (appSeconds() - AndroidPhaseStart) * 1000.0;
+#endif
 		}
 
 		// Render.
+#if PLATFORM_ANDROID
+		DOUBLE AndroidPhaseStart = appSeconds();
+#endif
 		Render->PreRender( Frame );
 		Viewport->Canvas->Render = Render;
 		if( Viewport->Console )
 			Viewport->Console->PreRender( Frame );
 		Viewport->Canvas->Update( Frame );
+#if PLATFORM_ANDROID
+		AndroidPreMs = (appSeconds() - AndroidPhaseStart) * 1000.0;
+		AndroidPhaseStart = appSeconds();
+#endif
 		Viewport->Actor->eventPreRender( Viewport->Canvas );
+#if PLATFORM_ANDROID
+		AndroidActorPreMs = (appSeconds() - AndroidPhaseStart) * 1000.0;
+#endif
 		UBOOL bConsoleDrawWorld = !Viewport->Console || Viewport->Console->GetDrawWorld();
+#if PLATFORM_ANDROID && UT99_ANDROID_FRAME_TRACE
 		if( AndroidDrawGateTraceCount < 80 || (AndroidDrawGateTraceCount % 120) == 0 )
 		{
 			debugf( NAME_Log, TEXT("UT99_ANDROID_V219_DRAW_GATE count=%i frame=%ix%i xb=%i yb=%i canvasOrg=%f,%f canvasClip=%f,%f drawWorld=%i console=%i lockFlags=0x%08X actor=%s viewActor=%s levelAction=%i"),
@@ -2287,6 +2345,7 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 				ViewActor ? ViewActor->GetFullName() : TEXT("None"),
 				ViewActor && ViewActor->Level ? ViewActor->Level->LevelAction : -1 );
 		}
+#endif
 		AndroidDrawGateTraceCount++;
 #if defined(LEGEND) //MWP
 		INT SaveXB = Frame->XB, SaveYB = Frame->YB, SaveX = Frame->X, SaveY = Frame->Y;
@@ -2297,20 +2356,96 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 		Frame->ComputeRenderSize();
 #endif
 		if( Frame->X>0 && Frame->Y>0 && bConsoleDrawWorld )
+		{
+#if PLATFORM_ANDROID
+			AndroidWorldStart = appSeconds();
+#endif
 			Render->DrawWorld( Frame );
+#if PLATFORM_ANDROID
+			AndroidAfterWorld = appSeconds();
+#endif
+		}
+#if PLATFORM_ANDROID
+		else
+		{
+			AndroidWorldStart = AndroidAfterLock;
+			AndroidAfterWorld = AndroidAfterLock;
+		}
+#endif
 #if defined(LEGEND) //MWP
 		Frame->XB = SaveXB, Frame->YB = SaveYB, Frame->X = SaveX, Frame->Y = SaveY;
 		Frame->ComputeRenderSize();
 #endif
+		AndroidPhaseStart = appSeconds();
 		Viewport->RenDev->EndFlash();
-		Viewport->Actor->eventPostRender( Viewport->Canvas );
-		if( Viewport->Console )
+		AndroidPostMs += (appSeconds() - AndroidPhaseStart) * 1000.0;
+		AndroidPhaseStart = appSeconds();
+#if defined(__ANDROID__)
+		UBOOL AndroidSkipNullHudPostRender = 0;
+		if( Viewport->Actor && Viewport->Actor->myHUD )
 		{
+			const TCHAR* AndroidHudClassName = Viewport->Actor->myHUD->GetClass()->GetName();
+			static UBOOL AndroidLoggedHudPostState = 0;
+			if( !AndroidLoggedHudPostState )
+			{
+				AndroidLoggedHudPostState = 1;
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V251_HUD_POST_STATE actor=%s hud=%s hudClass=%s menu=%p showMenu=%i"),
+					Viewport->Actor->GetFullName(),
+					Viewport->Actor->myHUD->GetFullName(),
+					AndroidHudClassName ? AndroidHudClassName : TEXT("None"),
+					Viewport->Actor->myHUD->MainMenu,
+					Viewport->Actor->bShowMenu ? 1 : 0 );
+			}
+			if( AndroidHudClassName && appStricmp( AndroidHudClassName, TEXT("CHNullHUD") ) == 0 && !Viewport->Actor->bShowMenu )
+			{
+				static UBOOL AndroidLoggedSkipNullHudPostRender = 0;
+				AndroidSkipNullHudPostRender = 1;
+				if( !AndroidLoggedSkipNullHudPostRender )
+				{
+					AndroidLoggedSkipNullHudPostRender = 1;
+					debugf( NAME_Log, TEXT("UT99_ANDROID_V251_SKIP_NULL_HUD_POSTRENDER actor=%s hud=%s menu=%p"),
+						Viewport->Actor->GetFullName(),
+						Viewport->Actor->myHUD->GetFullName(),
+						Viewport->Actor->myHUD->MainMenu );
+				}
+			}
+		}
+		if( !AndroidSkipNullHudPostRender )
+#endif
+			Viewport->Actor->eventPostRender( Viewport->Canvas );
+		AndroidActorPostMs = (appSeconds() - AndroidPhaseStart) * 1000.0;
+		UBOOL AndroidSkipLogoConsolePostRender = 0;
+#if defined(__ANDROID__)
+		if
+		(	Viewport->Actor
+		&&	Viewport->Actor->GetLevel()
+		&&	Viewport->Actor->GetLevel()->GetOuter()
+		&&	appStricmp( Viewport->Actor->GetLevel()->GetOuter()->GetName(), TEXT("UT-Logo-Map") ) == 0
+		&&	!Viewport->Actor->bShowMenu )
+		{
+			static UBOOL AndroidLoggedSkipLogoConsolePostRender = 0;
+			AndroidSkipLogoConsolePostRender = 1;
+			if( !AndroidLoggedSkipLogoConsolePostRender )
+			{
+				AndroidLoggedSkipLogoConsolePostRender = 1;
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V252_SKIP_LOGO_CONSOLE_POSTRENDER actor=%s"),
+					Viewport->Actor->GetFullName() );
+			}
+		}
+#endif
+		if( Viewport->Console && !AndroidSkipLogoConsolePostRender )
+		{
+			AndroidPhaseStart = appSeconds();
 			Viewport->Console->PostRender( Frame );
 			Viewport->Console->eventPostRender( Viewport->Canvas );
+			AndroidConsolePostMs = (appSeconds() - AndroidPhaseStart) * 1000.0;
 		}
 		if( Audio )
+		{
+			AndroidPhaseStart = appSeconds();
 			Audio->PostRender( Frame );
+			AndroidAudioPostMs = (appSeconds() - AndroidPhaseStart) * 1000.0;
+		}
 
 #if 0
 /* BEGIN BETA VERSION */
@@ -2345,9 +2480,61 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 #endif
 
 		Viewport->Canvas->Render = 0;
+		AndroidPhaseStart = appSeconds();
 		Render->PostRender( Frame );
+		AndroidPostMs += (appSeconds() - AndroidPhaseStart) * 1000.0;
+#if PLATFORM_ANDROID
+		AndroidUnlockStart = appSeconds();
+#endif
 		Viewport->Unlock( Blit );
+		DOUBLE AndroidAfterUnlock = appSeconds();
 		Render->FinishMasterFrame();
+#if PLATFORM_ANDROID
+		AndroidDrawEnd = appSeconds();
+		AndroidFinishMs = (AndroidDrawEnd - AndroidAfterUnlock) * 1000.0;
+		const DOUBLE AndroidLockMs = (AndroidAfterLock - AndroidDrawStart) * 1000.0;
+		const DOUBLE AndroidWorldMs = (AndroidAfterWorld - AndroidWorldStart) * 1000.0;
+		const DOUBLE AndroidUnlockMs = (AndroidAfterUnlock - AndroidUnlockStart) * 1000.0;
+		const DOUBLE AndroidTotalMs = (AndroidDrawEnd - AndroidDrawStart) * 1000.0;
+		AndroidAccumLock += AndroidLockMs;
+		AndroidAccumWorld += AndroidWorldMs;
+		AndroidAccumUnlock += AndroidUnlockMs;
+		AndroidAccumAudio += AndroidAudioMs;
+		AndroidAccumPre += AndroidPreMs;
+		AndroidAccumActorPre += AndroidActorPreMs;
+		AndroidAccumPost += AndroidPostMs;
+		AndroidAccumActorPost += AndroidActorPostMs;
+		AndroidAccumConsolePost += AndroidConsolePostMs;
+		AndroidAccumAudioPost += AndroidAudioPostMs;
+		AndroidAccumFinish += AndroidFinishMs;
+		AndroidAccumTotal += AndroidTotalMs;
+		AndroidMaxTotal = Max( AndroidMaxTotal, AndroidTotalMs );
+		AndroidTimingFrames++;
+		if( AndroidTimingFrames >= 60 )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V247_DRAW_TIMING frames=%i avgTotalMs=%f maxTotalMs=%f avgLockMs=%f avgAudioMs=%f avgPreMs=%f avgActorPreMs=%f avgWorldMs=%f avgPostMs=%f avgActorPostMs=%f avgConsolePostMs=%f avgAudioPostMs=%f avgUnlockMs=%f avgFinishMs=%f size=%ix%i"),
+				AndroidTimingFrames,
+				AndroidAccumTotal / AndroidTimingFrames,
+				AndroidMaxTotal,
+				AndroidAccumLock / AndroidTimingFrames,
+				AndroidAccumAudio / AndroidTimingFrames,
+				AndroidAccumPre / AndroidTimingFrames,
+				AndroidAccumActorPre / AndroidTimingFrames,
+				AndroidAccumWorld / AndroidTimingFrames,
+				AndroidAccumPost / AndroidTimingFrames,
+				AndroidAccumActorPost / AndroidTimingFrames,
+				AndroidAccumConsolePost / AndroidTimingFrames,
+				AndroidAccumAudioPost / AndroidTimingFrames,
+				AndroidAccumUnlock / AndroidTimingFrames,
+				AndroidAccumFinish / AndroidTimingFrames,
+				Viewport->SizeX,
+				Viewport->SizeY );
+			AndroidAccumLock = AndroidAccumWorld = AndroidAccumUnlock = AndroidAccumTotal = AndroidMaxTotal = 0.0;
+			AndroidAccumAudio = AndroidAccumPre = AndroidAccumActorPre = AndroidAccumPost = 0.0;
+			AndroidAccumActorPost = AndroidAccumConsolePost = AndroidAccumAudioPost = AndroidAccumFinish = 0.0;
+			AndroidTimingFrames = 0;
+		}
+#endif
 		if( DrawTraceCount < 5 )
 			debugf( NAME_Log, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE Draw finished count=%i"), DrawTraceCount );
 	}

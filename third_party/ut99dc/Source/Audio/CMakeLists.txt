@@ -24,5 +24,11 @@ if(ANDROID OR USE_SDL)
   target_link_libraries(${PROJECT_NAME} ${SDL2_LIBRARY})
 endif()
 
+if(ANDROID AND LIBXMP_LIBRARY)
+  target_include_directories(${PROJECT_NAME} PRIVATE ${LIBXMP_INCLUDE_DIR})
+  target_link_libraries(${PROJECT_NAME} ${LIBXMP_LIBRARY})
+  target_compile_definitions(${PROJECT_NAME} PRIVATE HAVE_LIBXMP=1)
+endif()
+
 target_compile_definitions(${PROJECT_NAME} PRIVATE AUDIO_EXPORTS UPACKAGE_NAME=${PROJECT_NAME})
 

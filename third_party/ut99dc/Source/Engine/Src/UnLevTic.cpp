@@ -9,6 +9,18 @@
 #include "EnginePrivate.h"
 #include "UnNet.h"
 
+#if defined(__ANDROID__)
+static inline UBOOL IsAndroidLogoFrontendLevel( ULevel* Level )
+{
+	return Level && Level->GetOuter() && appStricmp( Level->GetOuter()->GetName(), TEXT("UT-Logo-Map") ) == 0;
+}
+
+static inline UBOOL IsAndroidClassNamed( UObject* Object, const TCHAR* ClassName )
+{
+	return Object && Object->GetClass() && appStricmp( Object->GetClass()->GetName(), ClassName ) == 0;
+}
+#endif
+
 /*-----------------------------------------------------------------------------
 	Helper classes.
 -----------------------------------------------------------------------------*/
@@ -283,6 +295,21 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 
 			// Process PlayerTick with input.
 			PlayerPawn->Player->ReadInput( DeltaSeconds );
+#if defined(__ANDROID__)
+			if( IsAndroidLogoFrontendLevel( GetLevel() ) && !PlayerPawn->bShowMenu )
+			{
+				static UBOOL AndroidLoggedLogoTickSkip = 0;
+				if( !AndroidLoggedLogoTickSkip )
+				{
+					AndroidLoggedLogoTickSkip = 1;
+					debugf( NAME_Log, TEXT("UT99_ANDROID_V252_SKIP_LOGO_PLAYER_SCRIPT actor=%s map=%s"),
+						PlayerPawn->GetFullName(),
+						GetLevel()->GetOuter()->GetName() );
+				}
+				PlayerPawn->Player->ReadInput( -1.0 );
+				return 1;
+			}
+#endif
 			PlayerPawn->eventPlayerInput( DeltaSeconds );
 			PlayerPawn->eventPlayerTick( DeltaSeconds );
 			PlayerPawn->Player->ReadInput( -1.0 );
@@ -300,6 +327,22 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 		// Update timers.
 		if( TimerRate>0.0 && (TimerCounter+=DeltaSeconds)>=TimerRate )
 		{
+#if defined(__ANDROID__)
+			if( IsAndroidLogoFrontendLevel( GetLevel() ) && IsAndroidClassNamed( this, TEXT("CHNullHUD") ) )
+			{
+				static UBOOL AndroidLoggedLogoHudTimerSkip = 0;
+				if( !AndroidLoggedLogoHudTimerSkip )
+				{
+					AndroidLoggedLogoHudTimerSkip = 1;
+					debugf( NAME_Log, TEXT("UT99_ANDROID_V252_SKIP_LOGO_HUD_TIMER actor=%s map=%s"),
+						GetFullName(),
+						GetLevel()->GetOuter()->GetName() );
+				}
+				TimerCounter = 0.0;
+			}
+			else
+#endif
+			{
 			// Normalize the timer count.
 			INT TimerTicksPassed = 1;
 			if( TimerRate > 0.0 )
@@ -316,6 +359,7 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 
 			// Call timer routine with count of timer events that have passed.
 			eventTimer();
+			}
 		}
 
 		// Update LifeSpan.

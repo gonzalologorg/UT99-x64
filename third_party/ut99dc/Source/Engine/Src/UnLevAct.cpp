@@ -46,11 +46,11 @@ AActor* ULevel::SpawnActor
 )
 {
 	guard(ULevel::SpawnActor);
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE begin class=%s name=%s template=%s owner=%s"),
-		Class ? Class->GetName() : TEXT("NULL"),
-		*InName,
-		Template ? Template->GetFullName() : TEXT("NULL"),
-		Owner ? Owner->GetFullName() : TEXT("NULL") );
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE begin class=%s name=%s template=%s owner=%s"),
+	// 	Class ? Class->GetName() : TEXT("NULL"),
+	// 	*InName,
+	// 	Template ? Template->GetFullName() : TEXT("NULL"),
+	// 	Owner ? Owner->GetFullName() : TEXT("NULL") );
 
 	// Make sure this class is spawnable.
 	if( !Class )
@@ -78,22 +78,22 @@ AActor* ULevel::SpawnActor
 	if( !Template )
 		Template = Class->GetDefaultActor();
 	check(Template!=NULL);
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE template ready class=%s template=%s props=%i"),
-		Class->GetName(), Template->GetFullName(), Class->GetPropertiesSize() );
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE template ready class=%s template=%s props=%i"),
+	// 	Class->GetName(), Template->GetFullName(), Class->GetPropertiesSize() );
 
 	// Make sure actor will fit at desired location, and adjust location if necessary.
 	if( (Template->bCollideWorld || (Template->bCollideWhenPlacing && (GetLevelInfo()->NetMode != NM_Client))) && !bNoCollisionFail )
 		if( !FindSpot( Template->GetCylinderExtent(), Location, 0, 1 ) )
 			return NULL;
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE collision ok class=%s"), Class->GetName() );
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE collision ok class=%s"), Class->GetName() );
 
 	// Add at end of list.
 	INT iActor = Actors.Add();
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE construct begin class=%s index=%i"), Class->GetName(), iActor );
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE construct begin class=%s index=%i"), Class->GetName(), iActor );
     AActor* Actor = Actors(iActor) = (AActor*)StaticConstructObject( Class, GetOuter(), InName, 0, Template );
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE construct end actor=%s"), Actor ? Actor->GetFullName() : TEXT("NULL") );
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE construct end actor=%s"), Actor ? Actor->GetFullName() : TEXT("NULL") );
 	Actor->SetFlags( RF_Transactional );
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE flags set actor=%s"), Actor->GetFullName() );
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE flags set actor=%s"), Actor->GetFullName() );
 
 	// Set base actor properties.
 	Actor->Tag		= Class->GetFName();
@@ -101,7 +101,7 @@ AActor* ULevel::SpawnActor
 	Actor->Level	= GetLevelInfo();
 	Actor->bTicked  = !Ticked;
 	Actor->XLevel	= this;
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE base props set actor=%s"), Actor->GetFullName() );
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE base props set actor=%s"), Actor->GetFullName() );
 
 	// Set network role.
 	check(Actor->Role==ROLE_Authority);
@@ -118,7 +118,7 @@ AActor* ULevel::SpawnActor
 	Actor->Rotation = Rotation;
 	if( Actor->bCollideActors && Hash  )
 		Hash->AddActor( Actor );
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE transform/hash set actor=%s"), Actor->GetFullName() );
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE transform/hash set actor=%s"), Actor->GetFullName() );
 
 	// Init the actor's zone.
 	Actor->Region = FPointRegion(GetLevelInfo());
@@ -127,35 +127,35 @@ AActor* ULevel::SpawnActor
 
 	// Set owner.
 	Actor->SetOwner( Owner );
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE owner set actor=%s"), Actor->GetFullName() );
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE owner set actor=%s"), Actor->GetFullName() );
 
 	// Set instigator
 	Actor->Instigator = Instigator;
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE instigator set actor=%s"), Actor->GetFullName() );
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE instigator set actor=%s"), Actor->GetFullName() );
 
 	// Send messages.
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE InitExecution begin actor=%s"), Actor->GetFullName() );
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE InitExecution begin actor=%s"), Actor->GetFullName() );
 	Actor->InitExecution();
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE Spawned native begin actor=%s"), Actor->GetFullName() );
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE Spawned native begin actor=%s"), Actor->GetFullName() );
 	Actor->Spawned();
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE eventSpawned begin actor=%s"), Actor->GetFullName() );
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE eventSpawned begin actor=%s"), Actor->GetFullName() );
 	Actor->eventSpawned();
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE eventPreBeginPlay begin actor=%s"), Actor->GetFullName() );
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE eventPreBeginPlay begin actor=%s"), Actor->GetFullName() );
 	Actor->eventPreBeginPlay();
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE eventBeginPlay begin actor=%s"), Actor->GetFullName() );
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE eventBeginPlay begin actor=%s"), Actor->GetFullName() );
 	Actor->eventBeginPlay();
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE beginplay done actor=%s"), Actor->GetFullName() );
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE beginplay done actor=%s"), Actor->GetFullName() );
 	if( Actor->bDeleteMe )
 		return NULL;
 
 	// Set the actor's zone.
 	SetActorZone( Actor, iActor==0, 1 );
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE zone set actor=%s"), Actor->GetFullName() );
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE zone set actor=%s"), Actor->GetFullName() );
 
 	// Send PostBeginPlay.
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE eventPostBeginPlay begin actor=%s"), Actor->GetFullName() );
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE eventPostBeginPlay begin actor=%s"), Actor->GetFullName() );
 	Actor->eventPostBeginPlay();
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE postbeginplay done actor=%s"), Actor->GetFullName() );
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE postbeginplay done actor=%s"), Actor->GetFullName() );
 
 	// Check for encroachment.
 	if( !bNoCollisionFail && CheckEncroachment( Actor, Actor->Location, Actor->Rotation, 0 ) )
@@ -165,47 +165,47 @@ AActor* ULevel::SpawnActor
 	}
 
 	// Init scripting.
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE eventSetInitialState begin actor=%s"), Actor->GetFullName() );
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE eventSetInitialState begin actor=%s"), Actor->GetFullName() );
 	Actor->eventSetInitialState();
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE initial state done actor=%s"), Actor->GetFullName() );
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE initial state done actor=%s"), Actor->GetFullName() );
 
 	// Find Base
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE findbase check actor=%s base=%s collideWorld=%i physics=%i"),
-		Actor->GetFullName(),
-		Actor->Base ? Actor->Base->GetFullName() : TEXT("NULL"),
-		Actor->bCollideWorld,
-		Actor->Physics );
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE findbase check actor=%s base=%s collideWorld=%i physics=%i"),
+		// Actor->GetFullName(),
+		// Actor->Base ? Actor->Base->GetFullName() : TEXT("NULL"),
+		// Actor->bCollideWorld,
+		// Actor->Physics );
 	if( !Actor->Base && Actor->bCollideWorld
 		 && (Actor->IsA(ADecoration::StaticClass()) || Actor->IsA(AInventory::StaticClass()) || Actor->IsA(APawn::StaticClass())) 
 		 && ((Actor->Physics == PHYS_None) || (Actor->Physics == PHYS_Rotating)) )
 		Actor->FindBase();
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE findbase done actor=%s"), Actor->GetFullName() );
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE findbase done actor=%s"), Actor->GetFullName() );
 
 	// Success: Return the actor.
 	if( InTick )
 		NewlySpawned = new(GEngineMem)FActorLink(Actor,NewlySpawned);
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE newly spawned linked actor=%s intick=%i"), Actor->GetFullName(), InTick );
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE newly spawned linked actor=%s intick=%i"), Actor->GetFullName(), InTick );
 
 	static UBOOL InsideNotification = 0;
 #if defined(PLATFORM_64BIT)
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE skipping SpawnNotify scan on 64-bit actor=%s"), Actor->GetFullName() );
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE skipping SpawnNotify scan on 64-bit actor=%s"), Actor->GetFullName() );
 #else
 	if( !InsideNotification )
 	{
 		InsideNotification = 1;
 		// Spawn notification
-		debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE notification scan begin actor=%s"), Actor->GetFullName() );
+		// debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE notification scan begin actor=%s"), Actor->GetFullName() );
 		for( ASpawnNotify* N = GetLevelInfo()->SpawnNotify; N; N = N->Next )
 		{
 			if( N->ActorClass && Actor->IsA(N->ActorClass) )
 				Actor = N->eventSpawnNotification( Actor );
 		}
-		debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE notification scan done actor=%s"), Actor ? Actor->GetFullName() : TEXT("NULL") );
+//		debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE notification scan done actor=%s"), Actor ? Actor->GetFullName() : TEXT("NULL") );
 		InsideNotification = 0;
 	}
 #endif
 
-	debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE success actor=%s"), Actor ? Actor->GetFullName() : TEXT("NULL") );
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V144_SPAWN_TRACE success actor=%s"), Actor ? Actor->GetFullName() : TEXT("NULL") );
 	return Actor;
 	unguardf(( TEXT("(%s)"), Class->GetName() ));
 }
@@ -853,6 +853,17 @@ APlayerPawn* ULevel::SpawnPlayActor( UPlayer* Player, ENetRole RemoteRole, const
 	debugf( NAME_Log, TEXT("UT99_ANDROID_V173_SPAWNPLAY_TRACE PostLogin begin actor=%s"), Actor->GetFullName() );
 	GetLevelInfo()->Game->eventPostLogin( Actor );
 	debugf( NAME_Log, TEXT("UT99_ANDROID_V173_SPAWNPLAY_TRACE PostLogin done actor=%s"), Actor->GetFullName() );
+#if PLATFORM_ANDROID
+	debugf( NAME_Log, TEXT("UT99_ANDROID_V238_POSTLOGIN_MUSIC actor=%s actorSong=%s actorSection=%i actorCd=%i transition=%i levelSong=%s levelSection=%i levelCd=%i"),
+		Actor->GetFullName(),
+		Actor->Song ? Actor->Song->GetFullName() : TEXT("None"),
+		Actor->SongSection,
+		Actor->CdTrack,
+		Actor->Transition,
+		GetLevelInfo()->Song ? GetLevelInfo()->Song->GetFullName() : TEXT("None"),
+		GetLevelInfo()->SongSection,
+		GetLevelInfo()->CdTrack );
+#endif
 #if PLATFORM_ANDROID
 	if( Actor && appStricmp(GetOuter()->GetName(),TEXT("CityIntro"))==0 && Actor->Physics!=PHYS_Interpolating )
 	{
