@@ -11,11 +11,11 @@
   <a href="https://github.com/Andiweli/UT99-Android/releases">DOWNLOAD</a>
 </p>
 
-![Platform](https://img.shields.io/badge/platform-Android-green)
-![Engine](https://img.shields.io/badge/engine-Unreal%20Engine%201-blue)
-![Renderer](https://img.shields.io/badge/renderer-OpenGL%20ES%202.0-lightgrey)
-![ABI](https://img.shields.io/badge/ABI-armeabi--v7a-orange)
-![Controller](https://img.shields.io/badge/controls-only%20Controller-blueviolet)
+![Android 13](https://img.shields.io/badge/OS-up%20to%20Android%2013-green)
+![ABI](https://img.shields.io/badge/ABI-armeabi--v7a/32bit-orange)
+![AI](https://img.shields.io/badge/AI-assisted%20coding-6e7781)
+![Controller](https://img.shields.io/badge/Controls-Touch/Controller-blueviolet)
+![Multiplayer](https://img.shields.io/badge/Multiplayer-local%20WiFi-blueviolet)
 
 # x64 Port WIP
 
@@ -38,15 +38,17 @@ https://github.com/user-attachments/assets/d4bea90e-efaa-40d2-aa00-fc154782b07c
 
 **Unreal Tournament Android** is an Android port of **Unreal Tournament / UT99 (1999)** based on the classic **Unreal Engine 1** source code.
 
-The goal of this project is to make the original Unreal Tournament playable on Android devices, including legacy Android hardware such as the **OUYA console**, while preserving the classic look and feel of the PC version.
+> [!NOTE]
+> Unofficial fan port.
+> No game data included.
+> Requires legally obtained Unreal Tournament v1.400 game files.
+> This project is not official and is not endorsed by Epic Games.
 
 > [!IMPORTANT]
-> **Original UT99 game data is not included. You need valid Unreal Tournament v400 data.**
-> 
 > **This app is 32 bit only!** It won't install on your phone? Then it might only accept 64 bit apps. 
 > There are no plans on making this app compatible with 64 bit only CPUs. 
 > 
-> Video games on smartphones are great, but not user-friendly if they require more than two thumbs to control. For this reason, this port is designed for controller input and does not support touchscreen controls.
+> Video games on smartphones are great, but not user-friendly if they require more than two thumbs to control. For this reason, this port is designed for controller input and does only offer basic touchscreen controls.
 >
 > This project is for preservation, experimentation and personal use only.  
 > Unreal Tournament, Unreal Engine and related trademarks are owned by Epic Games.  
@@ -64,19 +66,13 @@ The goal of this project is to make the original Unreal Tournament playable on A
 
 ## ◈ Features
 
-- Runs Unreal Tournament / UT99 on Android.
-- Supports modern Android devices and older Android hardware.
-- OUYA-compatible launcher entry.
-- Android-side installer / preflight screen.
-- Import game data from:
-  - an extracted Unreal Tournament folder
-  - a ZIP file containing the game data
-- Automatic copy/extraction into the app's private data folder.
-- OpenGL ES 2.0 rendering.
-- SDL2 based native runtime.
-- Controller-friendly default layout.
-- Landscape fullscreen presentation.
-- Legacy storage behavior kept friendly for old sideload devices.
+- Android support for newer Android devices up to Android 13 (no 64 bit devices).
+- OUYA (Android 4.x) legacy support - with a lower internal render resolution for better performance on legacy hardware.
+- Improved Game Data Import – Unreal Tournament data can be imported via folder or ZIP selection and automatically installs to the app's data folder.
+- Android 8+ Storage Access Fixed – SAF support added for modern Android versions where direct SD/file access is restricted.
+- Legacy storage behavior friendly for old sideload devices (place game data on your microSD/UT99 folder).
+- Local WiFi multiplayer and botmatches are available.
+- Added touch controls for use without a controller.
 
 > [!NOTE]
 > Expect occasional issues, especially on very old Android devices or unusual controller mappings.
@@ -202,11 +198,15 @@ Special thanks to the Unreal Engine 1 preservation and porting community.
 
 ---
 
-## ◈ Legal
+## ◎ Legal
 
 Unreal Tournament, Unreal Engine and related names, assets and trademarks are property of Epic Games.
+Portions of the materials used are trademarks and/or copyrighted works of Epic Games, Inc.
 
 This repository does **not** include commercial game data.  
 You must own a legal copy of Unreal Tournament / UT99 to use this port.
+This material is not official and is not endorsed by Epic.
+
+All rights reserved by Epic.
 
 Do not use this project for commercial purposes.
