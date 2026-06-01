@@ -189,8 +189,17 @@ private:
 			const INT VertexBytes = (BYTE*)VtxDataPtr - (BYTE*)VtxData;
 #if PLATFORM_ANDROID
 			static INT AndroidFlushLogCount = 0;
+			static INT AndroidFlushTimingCount = 0;
+			static INT AndroidFlushTimingElems = 0;
+			static INT AndroidFlushTimingBytes = 0;
+			static DOUBLE AndroidFlushTimingTotalMs = 0.0;
+			static DOUBLE AndroidFlushTimingSubDataMs = 0.0;
+			static DOUBLE AndroidFlushTimingDrawMs = 0.0;
 			const UBOOL AndroidDoLog = false;// AndroidFlushLogCount < 32 || ((AndroidFlushLogCount % 60) == 0);
 			AndroidFlushLogCount++;
+			const DOUBLE AndroidFlushStart = appSeconds();
+			DOUBLE AndroidSubDataMs = 0.0;
+			DOUBLE AndroidDrawMs = 0.0;
 			if( AndroidDoLog )
 				// debugf( NAME_Log, TEXT("UT99_ANDROID_V197_GLES_FLUSH_BEGIN count=%i useVBO=%i idxCount=%i idxElems=%i vtxFloats=%i vtxBytes=%i vtxCap=%i idxCap=%i shader=0x%08x poly=0x%08x glerr=0x%04x"),
 				// 	AndroidFlushLogCount,
@@ -223,7 +232,13 @@ private:
 			if ( UseVAO )
 			{
 				glBindBuffer( GL_ARRAY_BUFFER, GLBuf );
+#if PLATFORM_ANDROID
+				const DOUBLE AndroidSubDataStart = appSeconds();
+#endif
 				glBufferSubData( GL_ARRAY_BUFFER, 0, ( (BYTE*)VtxDataPtr - (BYTE*)VtxData ), VtxData );
+#if PLATFORM_ANDROID
+				AndroidSubDataMs = (appSeconds() - AndroidSubDataStart) * 1000.0;
+#endif
 #if PLATFORM_ANDROID
 				if( AndroidDoLog )
 					debugf( NAME_Log, TEXT("UT99_ANDROID_V197_GLES_FLUSH_AFTER_SUBDATA count=%i glerr=0x%04x"), AndroidFlushLogCount, (DWORD)glGetError() );
@@ -232,11 +247,35 @@ private:
 #if PLATFORM_ANDROID
 			if( AndroidDoLog )
 				debugf( NAME_Log, TEXT("UT99_ANDROID_V197_GLES_FLUSH_DRAW count=%i mode=triangles indexElems=%i glerr=0x%04x"), AndroidFlushLogCount, IndexElems, (DWORD)glGetError() );
+			const DOUBLE AndroidDrawStart = appSeconds();
 #endif
 			glDrawElements( GL_TRIANGLES, IdxDataPtr - IdxData, GL_UNSIGNED_SHORT, IdxData );
 #if PLATFORM_ANDROID
+			AndroidDrawMs = (appSeconds() - AndroidDrawStart) * 1000.0;
 			if( AndroidDoLog )
 				debugf( NAME_Log, TEXT("UT99_ANDROID_V197_GLES_FLUSH_AFTER_DRAW count=%i glerr=0x%04x"), AndroidFlushLogCount, (DWORD)glGetError() );
+			AndroidFlushTimingCount++;
+			AndroidFlushTimingElems += IndexElems;
+			AndroidFlushTimingBytes += VertexBytes;
+			AndroidFlushTimingSubDataMs += AndroidSubDataMs;
+			AndroidFlushTimingDrawMs += AndroidDrawMs;
+			AndroidFlushTimingTotalMs += (appSeconds() - AndroidFlushStart) * 1000.0;
+			if( AndroidFlushTimingCount >= 600 )
+			{
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V286_GLES_FLUSH_TIMING flushes=%i avgTotalMs=%f avgSubDataMs=%f avgDrawMs=%f avgIdxElems=%f avgVtxBytes=%f"),
+					AndroidFlushTimingCount,
+					AndroidFlushTimingTotalMs / AndroidFlushTimingCount,
+					AndroidFlushTimingSubDataMs / AndroidFlushTimingCount,
+					AndroidFlushTimingDrawMs / AndroidFlushTimingCount,
+					(FLOAT)AndroidFlushTimingElems / AndroidFlushTimingCount,
+					(FLOAT)AndroidFlushTimingBytes / AndroidFlushTimingCount );
+				AndroidFlushTimingCount = 0;
+				AndroidFlushTimingElems = 0;
+				AndroidFlushTimingBytes = 0;
+				AndroidFlushTimingTotalMs = 0.0;
+				AndroidFlushTimingSubDataMs = 0.0;
+				AndroidFlushTimingDrawMs = 0.0;
+			}
 #endif
 			IdxCount = 0;
 		}

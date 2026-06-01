@@ -11,6 +11,12 @@
 // Parameters.
 #define SPRITE_PROJECTION_FORWARD 32.f /* Move sprite projection planes forward */
 
+#if PLATFORM_ANDROID
+#ifndef UT99_ANDROID_CITYINTRO_SKIP_DYNAMICS
+#define UT99_ANDROID_CITYINTRO_SKIP_DYNAMICS 0
+#endif
+#endif
+
 static UBOOL IsKnownRenderObject( UObject* Object )
 {
 	guardSlow(IsKnownRenderObject);
@@ -113,6 +119,35 @@ void URender::SetupDynamics( FSceneNode* Frame, AActor* Exclude )
 		return;
 	STAT(clock(GStat.FilterTime));
 	UBOOL HighDetailActors=Frame->Viewport->RenDev->HighDetailActors;
+#if PLATFORM_ANDROID
+	DOUBLE AndroidDynamicsStart = appSeconds();
+	INT AndroidDynamicsActors = 0;
+	INT AndroidDynamicsSprites = 0;
+	INT AndroidDynamicsBrushes = 0;
+	INT AndroidDynamicsLights = 0;
+	INT AndroidDynamicsSkipped = 0;
+	UBOOL AndroidSkipCityIntroDynamics = 0;
+#if UT99_ANDROID_CITYINTRO_SKIP_DYNAMICS
+	if
+	(	Frame->Viewport
+	&&	Frame->Viewport->Actor
+	&&	Frame->Viewport->Actor->Physics == PHYS_Interpolating
+	&&	Frame->Viewport->Actor->GetLevel()
+	&&	Frame->Viewport->Actor->GetLevel()->GetOuter()
+	&&	appStricmp( Frame->Viewport->Actor->GetLevel()->GetOuter()->GetName(), TEXT("CityIntro") ) == 0 )
+	{
+		static INT AndroidSkipDynamicsLogs = 0;
+		AndroidSkipCityIntroDynamics = 1;
+		if( AndroidSkipDynamicsLogs < 4 )
+		{
+			AndroidSkipDynamicsLogs++;
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V285_SKIP_CITYINTRO_DYNAMICS actor=%s actors=%i"),
+				Frame->Viewport->Actor->GetFullName(),
+				Frame->Level->Actors.Num() );
+		}
+	}
+#endif
+#endif
 
 	// Traverse entire actor list.
 	for( INT iActor=0; iActor<Frame->Level->Actors.Num(); iActor++ )
@@ -124,6 +159,9 @@ void URender::SetupDynamics( FSceneNode* Frame, AActor* Exclude )
 		&&	(!Actor->bHighDetail || HighDetailActors) 
 		&&	(Frame->Recursion!=0 || Frame->Viewport->Actor->bBehindView || Actor!=Frame->Viewport->Actor->ViewTarget) )
 		{
+#if PLATFORM_ANDROID
+			AndroidDynamicsActors++;
+#endif
 			if
 			(	(Actor != Exclude)
 			&&	(GIsEditor ? !Actor->bHiddenEd : !Actor->bHidden)
@@ -142,6 +180,13 @@ void URender::SetupDynamics( FSceneNode* Frame, AActor* Exclude )
 				// Add the sprite proxy.
 				if( !Actor->IsMovingBrush() )
 				{
+#if PLATFORM_ANDROID
+					if( AndroidSkipCityIntroDynamics )
+					{
+						AndroidDynamicsSkipped++;
+						goto SkipDynamicSprite;
+					}
+#endif
 					SanitizeActorRenderRefs( Actor, TEXT("SetupDynamics") );
 #if defined(LEGEND) //LEGEND
 if( GIsRunning ) //!!Tim -- don't render until after the engine is fully initialized.
@@ -179,13 +224,22 @@ if( GIsRunning ) //!!Tim -- don't render until after the engine is fully initial
 }
 #else
 					new(GDynMem)FDynamicSprite( Frame, 0, Actor );
+#if PLATFORM_ANDROID
+					AndroidDynamicsSprites++;
+#endif
 #endif
 				}
 				else if( Frame->Level->BrushTracker )
 				{
+#if PLATFORM_ANDROID
+					AndroidDynamicsBrushes++;
+#endif
 					//bounding box reject!!
 					Frame->Level->BrushTracker->Update( Actor );
 				}
+#if PLATFORM_ANDROID
+				SkipDynamicSprite:;
+#endif
 			}
 			if
 			(	(Actor->LightType)
@@ -206,11 +260,45 @@ if( GIsRunning ) //!!Tim -- don't render until after the engine is fully initial
 						if( Frame->ViewPlanes[i].PlaneDot(Actor->Location) < -Actor->WorldVolumetricRadius() )
 							IsVolumetric = 0;
 					new(GDynMem)FDynamicLight( 0, Actor, IsVolumetric, 0 );
+#if PLATFORM_ANDROID
+					AndroidDynamicsLights++;
+#endif
 					STAT(GStat.DynLightActors++);
 				}
 			}
 		}
 	}
+#if PLATFORM_ANDROID
+	static INT AndroidDynamicsTimingFrames = 0;
+	static DOUBLE AndroidDynamicsTimingAccum = 0.0;
+	static INT AndroidDynamicsActorAccum = 0;
+	static INT AndroidDynamicsSpriteAccum = 0;
+	static INT AndroidDynamicsBrushAccum = 0;
+	static INT AndroidDynamicsLightAccum = 0;
+	static INT AndroidDynamicsSkipAccum = 0;
+	AndroidDynamicsTimingFrames++;
+	AndroidDynamicsTimingAccum += (appSeconds() - AndroidDynamicsStart) * 1000.0;
+	AndroidDynamicsActorAccum += AndroidDynamicsActors;
+	AndroidDynamicsSpriteAccum += AndroidDynamicsSprites;
+	AndroidDynamicsBrushAccum += AndroidDynamicsBrushes;
+	AndroidDynamicsLightAccum += AndroidDynamicsLights;
+	AndroidDynamicsSkipAccum += AndroidDynamicsSkipped;
+	if( AndroidDynamicsTimingFrames >= 60 )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V286_SETUPDYNAMICS_TIMING frames=%i avgMs=%f avgActors=%f avgSprites=%f avgBrushes=%f avgLights=%f avgSkipped=%f"),
+			AndroidDynamicsTimingFrames,
+			AndroidDynamicsTimingAccum / AndroidDynamicsTimingFrames,
+			(FLOAT)AndroidDynamicsActorAccum / AndroidDynamicsTimingFrames,
+			(FLOAT)AndroidDynamicsSpriteAccum / AndroidDynamicsTimingFrames,
+			(FLOAT)AndroidDynamicsBrushAccum / AndroidDynamicsTimingFrames,
+			(FLOAT)AndroidDynamicsLightAccum / AndroidDynamicsTimingFrames,
+			(FLOAT)AndroidDynamicsSkipAccum / AndroidDynamicsTimingFrames );
+		AndroidDynamicsTimingFrames = 0;
+		AndroidDynamicsTimingAccum = 0.0;
+		AndroidDynamicsActorAccum = AndroidDynamicsSpriteAccum = AndroidDynamicsBrushAccum = 0;
+		AndroidDynamicsLightAccum = AndroidDynamicsSkipAccum = 0;
+	}
+#endif
 	STAT(unclock(GStat.FilterTime));
 	unguard;
 }

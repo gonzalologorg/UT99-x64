@@ -3555,6 +3555,51 @@ void UObject::execNew( FFrame& Stack, RESULT_DECL )
 	P_GET_INT_OPTX(Flags,0);
 	P_GET_OBJECT_OPTX(UClass,Cls,NULL);
 
+#if PLATFORM_ANDROID
+	Outer = ValidateScriptObjectPointer( Stack, Outer, TEXT("New.Outer") );
+	Cls = (UClass*)ValidateScriptObjectPointer( Stack, Cls, TEXT("New.Class") );
+	if( Cls && !((UObject*)Cls)->IsA(UClass::StaticClass()) )
+	{
+		debugf( NAME_Warning, TEXT("UT99_ANDROID_V271_BAD_NEW_CLASS context=ExecNew object=%s node=%s code=%i class=%p outer=%p"),
+			Stack.Object ? Stack.Object->GetFullName() : TEXT("None"),
+			Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
+			(Stack.Node && Stack.Node->Script.Num()) ? (INT)(Stack.Code - &Stack.Node->Script(0)) : -1,
+			Cls,
+			Outer );
+		Cls = NULL;
+	}
+	if( !Cls )
+	{
+#if PLATFORM_ANDROID
+		if
+		(	Stack.Node
+		&&	appStricmp( Stack.Node->GetName(), TEXT("CreateRootWindow") ) == 0
+		&&	appStrstr( Stack.Node->GetFullName(), TEXT("UWindow.WindowConsole.CreateRootWindow") ) )
+		{
+			Cls = StaticLoadClass( UObject::StaticClass(), NULL, TEXT("UMenu.UMenuRootWindow"), NULL, LOAD_NoWarn, NULL );
+			if( Cls )
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V272_ROOTWINDOW_CLASS_FALLBACK class=%s"), Cls->GetFullName() );
+			else
+				debugf( NAME_Warning, TEXT("UT99_ANDROID_V272_ROOTWINDOW_CLASS_FALLBACK_FAILED") );
+		}
+		if( Cls )
+		{
+			// Continue with the recovered root window class below.
+		}
+		else
+#endif
+		{
+		debugf( NAME_Warning, TEXT("UT99_ANDROID_V271_BAD_NEW_CLASS context=ExecNewNull object=%s node=%s code=%i outer=%p"),
+			Stack.Object ? Stack.Object->GetFullName() : TEXT("None"),
+			Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
+			(Stack.Node && Stack.Node->Script.Num()) ? (INT)(Stack.Code - &Stack.Node->Script(0)) : -1,
+			Outer );
+		*(UObject**)Result = NULL;
+		return;
+		}
+	}
+#endif
+
 	// Validate parameters.
 	if( Flags & ~RF_ScriptMask )
 		Stack.Logf( TEXT("new: Flags %08X not allowed"), Flags & ~RF_ScriptMask );

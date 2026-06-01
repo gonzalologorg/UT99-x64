@@ -90,6 +90,99 @@ static UProperty* FindNativeProperty( UClass* Class, const TCHAR* Name )
 	unguard;
 }
 
+#if PLATFORM_ANDROID
+static UBOOL AndroidKnownObject( UObject* Object )
+{
+	guardSlow(AndroidKnownObject);
+	if( !Object )
+		return 1;
+	for( FObjectIterator It; It; ++It )
+		if( *It == Object )
+			return 1;
+	return 0;
+	unguardSlow;
+}
+
+static void AndroidDumpConsoleWindowState( UViewport* Viewport, const TCHAR* Context )
+{
+	guardSlow(AndroidDumpConsoleWindowState);
+	if( !Viewport || !Viewport->Console || !Viewport->Console->GetClass() )
+		return;
+	UConsole* Console = Viewport->Console;
+	const TCHAR* StateName =
+		(Console->GetStateFrame() && Console->GetStateFrame()->StateNode)
+		? Console->GetStateFrame()->StateNode->GetName()
+		: TEXT("None");
+	debugf( NAME_Log, TEXT("UT99_ANDROID_V278_CONSOLE_STATE context=%s console=%s class=%s state=%s drawWorld=%i viewport=%ix%i actor=%s"),
+		Context,
+		Console->GetFullName(),
+		Console->GetClass()->GetFullName(),
+		StateName,
+		Console->GetDrawWorld() ? 1 : 0,
+		Viewport->SizeX,
+		Viewport->SizeY,
+		Viewport->Actor ? Viewport->Actor->GetFullName() : TEXT("None") );
+	INT Logged = 0;
+	for( TFieldIterator<UProperty> It(Console->GetClass()); It && Logged<96; ++It )
+	{
+		UProperty* Prop = *It;
+		if( !Prop )
+			continue;
+		if( Prop->Offset < 0 || Prop->Offset + Prop->ElementSize > Console->GetClass()->GetPropertiesSize() )
+			continue;
+		UObjectProperty* ObjProp = Cast<UObjectProperty>( Prop );
+		UBoolProperty* BoolProp = Cast<UBoolProperty>( Prop );
+		if( ObjProp )
+		{
+			UObject* Value = *(UObject**)((BYTE*)Console + Prop->Offset);
+			UBOOL Known = AndroidKnownObject( Value );
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V278_CONSOLE_OBJ prop=%s offset=%i class=%s value=%p known=%i valueName=%s"),
+				Prop->GetName(),
+				Prop->Offset,
+				ObjProp->PropertyClass ? ObjProp->PropertyClass->GetName() : TEXT("None"),
+				Value,
+				Known ? 1 : 0,
+				(Known && Value) ? Value->GetFullName() : TEXT("None") );
+			Logged++;
+		}
+		else if( BoolProp )
+		{
+			UBOOL Value = (*(BITFIELD*)((BYTE*)Console + Prop->Offset) & BoolProp->BitMask) != 0;
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V278_CONSOLE_BOOL prop=%s offset=%i mask=0x%08x value=%i"),
+				Prop->GetName(),
+				Prop->Offset,
+				(DWORD)BoolProp->BitMask,
+				Value ? 1 : 0 );
+			Logged++;
+		}
+	}
+	unguardSlow;
+}
+
+static void AndroidForceConsoleFrontendDefaults( UConsole* Console )
+{
+	guard(AndroidForceConsoleFrontendDefaults);
+	if( !Console || !Console->GetClass() )
+		return;
+	UStrProperty* RootWindowProp = Cast<UStrProperty>( FindNativeProperty( Console->GetClass(), TEXT("RootWindow") ) );
+	UBoolProperty* ShowDesktopProp = Cast<UBoolProperty>( FindNativeProperty( Console->GetClass(), TEXT("ShowDesktop") ) );
+	if( RootWindowProp )
+	{
+		*(FString*)((BYTE*)Console + RootWindowProp->Offset) = TEXT("UMenu.UMenuRootWindow");
+	}
+	if( ShowDesktopProp )
+	{
+		*(BITFIELD*)((BYTE*)Console + ShowDesktopProp->Offset) |= ShowDesktopProp->BitMask;
+	}
+	debugf( NAME_Init, TEXT("UT99_ANDROID_V280_CONSOLE_FRONTEND_DEFAULTS class=%s rootProp=%i root=%s showDesktopProp=%i"),
+		Console->GetClass()->GetFullName(),
+		RootWindowProp ? RootWindowProp->Offset : -1,
+		RootWindowProp ? **(FString*)((BYTE*)Console + RootWindowProp->Offset) : TEXT("None"),
+		ShowDesktopProp ? ShowDesktopProp->Offset : -1 );
+	unguard;
+}
+#endif
+
 static void FixupNativeBoolBlockOffset( UClass* Class, const TCHAR* Label, const TCHAR** Names, INT Count, INT Offset );
 
 static void FixupNativePropertyOffset( UClass* Class, const TCHAR* Name, INT Offset )
@@ -1083,7 +1176,22 @@ void UGameEngine::Init()
 
 	// Handle failure.
 	if( !Success )
+	{
+#if defined(PLATFORM_64BIT)
+		debugf( NAME_Warning, TEXT("UT99_ANDROID_V274_INITIAL_BROWSE_FAILED_CONTINUE parm=%s error=%s glevel=%s gentry=%s"),
+			Parm,
+			*Error,
+			GLevel && GLevel->GetOuter() ? GLevel->GetOuter()->GetName() : TEXT("None"),
+			GEntry && GEntry->GetOuter() ? GEntry->GetOuter()->GetName() : TEXT("None") );
+		if( Client && GEntry )
+		{
+			GLevel = GEntry;
+			Success = 1;
+		}
+		else
+#endif
 		appErrorf( LocalizeError("FailedBrowse"), Parm, *Error );
+	}
 
 	// Open initial Viewport.
 	if( Client )
@@ -1096,16 +1204,37 @@ void UGameEngine::Init()
 		debugf( NAME_Init, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE NewViewport viewport=%i"), Viewport != NULL );
 
 		// Create console.
+#if PLATFORM_ANDROID
+		if( GConfig )
+		{
+			GConfig->SetString( TEXT("UTMenu.UTConsole"), TEXT("RootWindow"), TEXT("UMenu.UMenuRootWindow"), TEXT("System") );
+			GConfig->SetString( TEXT("UTMenu.UTConsole"), TEXT("UWindowKey"), TEXT("IK_Esc"), TEXT("System") );
+			GConfig->SetString( TEXT("UTMenu.UTConsole"), TEXT("ShowDesktop"), TEXT("True"), TEXT("System") );
+			debugf( NAME_Init, TEXT("UT99_ANDROID_V279_UTCONSOLE_CONFIG_ROOTWINDOW") );
+		}
+#endif
 		UClass* ConsoleClass = StaticLoadClass( UConsole::StaticClass(), NULL, TEXT("ini:Engine.Engine.Console"), NULL, LOAD_NoFail, NULL );
 		UConsole::FixupNativeClassSize( ConsoleClass );
 		Viewport->Console = ConstructObject<UConsole>( ConsoleClass );
 		Viewport->Console->_Init( Viewport );
+#if PLATFORM_ANDROID
+		AndroidForceConsoleFrontendDefaults( Viewport->Console );
+#endif
 		debugf( NAME_Init, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE console initialized class=%s"), ConsoleClass ? ConsoleClass->GetName() : TEXT("None") );
 
 		// Spawn play actor.
 		FString Error;
 		if( !GLevel->SpawnPlayActor( Viewport, ROLE_SimulatedProxy, URL, Error ) )
+		{
+#if defined(PLATFORM_64BIT)
+			debugf( NAME_Warning, TEXT("UT99_ANDROID_V273_INITIAL_SPAWN_FAILED_CONTINUE url=%s level=%s error=%s"),
+				*URL.String(),
+				GLevel && GLevel->GetOuter() ? GLevel->GetOuter()->GetName() : TEXT("None"),
+				*Error );
+#else
 			appErrorf( TEXT("%s"), *Error );
+#endif
+		}
 		debugf( NAME_Init, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE play actor spawned Actor=%i"), Viewport->Actor != NULL );
 		Viewport->Input->Init( Viewport );
 		debugf( NAME_Init, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE input initialized opening window") );
@@ -2542,8 +2671,30 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 		if( Viewport->Console && !AndroidSkipLogoConsolePostRender )
 		{
 			AndroidPhaseStart = appSeconds();
+#if defined(__ANDROID__)
+			if( GAndroidFrontendMenuRequested )
+			{
+				static INT AndroidConsolePostRenderPreDumpCount = 0;
+				if( AndroidConsolePostRenderPreDumpCount < 1 )
+				{
+					AndroidConsolePostRenderPreDumpCount++;
+					AndroidDumpConsoleWindowState( Viewport, TEXT("ConsolePostRender") );
+				}
+			}
+#endif
 			Viewport->Console->PostRender( Frame );
 			Viewport->Console->eventPostRender( Viewport->Canvas );
+#if defined(__ANDROID__)
+			if( GAndroidFrontendMenuRequested )
+			{
+				static INT AndroidConsolePostRenderAfterDumpCount = 0;
+				if( AndroidConsolePostRenderAfterDumpCount < 4 )
+				{
+					AndroidConsolePostRenderAfterDumpCount++;
+					AndroidDumpConsoleWindowState( Viewport, TEXT("ConsolePostRenderAfterEvent") );
+				}
+			}
+#endif
 			AndroidConsolePostMs = (appSeconds() - AndroidPhaseStart) * 1000.0;
 		}
 		if( Audio )
@@ -2847,6 +2998,33 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 	{
 		// Travel to new level, and exit.
 		UViewport* Viewport = Client->Viewports( 0 );
+#if defined(PLATFORM_64BIT)
+		if( appStricmp(*Viewport->TravelURL,TEXT("?entry"))==0 || appStricmp(*Viewport->TravelURL,TEXT("?failed"))==0 )
+		{
+			debugf( NAME_Warning, TEXT("UT99_ANDROID_V276_SKIP_ENTRY_CLIENT_TRAVEL url=%s actor=%s level=%s"),
+				*Viewport->TravelURL,
+				Viewport->Actor ? Viewport->Actor->GetFullName() : TEXT("None"),
+				GLevel && GLevel->GetOuter() ? GLevel->GetOuter()->GetName() : TEXT("None") );
+			if( Viewport->Actor )
+			{
+				Viewport->Actor->bShowMenu = 1;
+				Viewport->Actor->WalkBob = FVector(0,0,0);
+			}
+			if( Viewport->Console )
+			{
+				Viewport->Console->GotoState( FName(TEXT("UWindow")) );
+			}
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V277_MENU_FORCED_AFTER_ENTRY_SKIP actor=%s showMenu=%i consoleState=%s hud=%s mainMenu=%p"),
+				Viewport->Actor ? Viewport->Actor->GetFullName() : TEXT("None"),
+				Viewport->Actor ? Viewport->Actor->bShowMenu : 0,
+				(Viewport->Console && Viewport->Console->GetStateFrame() && Viewport->Console->GetStateFrame()->StateNode) ? Viewport->Console->GetStateFrame()->StateNode->GetName() : TEXT("None"),
+				(Viewport->Actor && Viewport->Actor->myHUD) ? Viewport->Actor->myHUD->GetFullName() : TEXT("None"),
+				(Viewport->Actor && Viewport->Actor->myHUD) ? Viewport->Actor->myHUD->MainMenu : NULL );
+			AndroidDumpConsoleWindowState( Viewport, TEXT("EntrySkip") );
+			Viewport->TravelURL = TEXT("");
+			return;
+		}
+#endif
 		TMap<FString,FString> TravelInfo;
 
 		// Export items.
@@ -2864,7 +3042,15 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 			TravelInfo.Set( *Viewport->Actor->PlayerReplicationInfo->PlayerName, *PlayerTravelInfo );
 		}
 		FString Error;
-		Browse( FURL(&LastURL,*Viewport->TravelURL,Viewport->TravelType), &TravelInfo, Error );
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V275_CLIENT_TRAVEL_BEGIN url=%s type=%i actor=%s"),
+			*Viewport->TravelURL,
+			Viewport->TravelType,
+			Viewport->Actor ? Viewport->Actor->GetFullName() : TEXT("None") );
+		UBOOL bBrowseOk = Browse( FURL(&LastURL,*Viewport->TravelURL,Viewport->TravelType), &TravelInfo, Error );
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V275_CLIENT_TRAVEL_DONE ok=%i error=%s level=%s"),
+			bBrowseOk,
+			*Error,
+			GLevel && GLevel->GetOuter() ? GLevel->GetOuter()->GetName() : TEXT("None") );
 		Viewport->TravelURL=TEXT("");
 
 		return;

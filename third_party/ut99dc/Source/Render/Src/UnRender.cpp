@@ -19,6 +19,9 @@
 #ifndef UT99_ANDROID_EXHAUSTIVE_OBJECT_VALIDATE
 #define UT99_ANDROID_EXHAUSTIVE_OBJECT_VALIDATE 0
 #endif
+#ifndef UT99_ANDROID_CITYINTRO_SKIP_BSP_LIGHTING
+#define UT99_ANDROID_CITYINTRO_SKIP_BSP_LIGHTING 0
+#endif
 #endif
 
 /*-----------------------------------------------------------------------------
@@ -2207,13 +2210,16 @@ void URender::OccludeBsp( FSceneNode* Frame )
 #if PLATFORM_ANDROID
 	if( iViewZone != 0 )
 	{
-		debugf( NAME_Log, TEXT("UT99_ANDROID_V225_ZONE_FILTER_RESTORE frameZone=%i actorZone=%i usingViewZone=%i numZones=%i regionZone=%p modelZoneActor=%p"),
-			iViewZone,
-			Viewport->Actor->Region.ZoneNumber,
-			iViewZone,
-			Model->NumZones,
-			Viewport->Actor->Region.Zone,
-			Model->Zones[iViewZone].ZoneActor );
+		static INT AndroidZoneRestoreLogCount = 0;
+		if( AndroidZoneRestoreLogCount < 8 || (AndroidZoneRestoreLogCount % 240) == 0 )
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V225_ZONE_FILTER_RESTORE frameZone=%i actorZone=%i usingViewZone=%i numZones=%i regionZone=%p modelZoneActor=%p"),
+				iViewZone,
+				Viewport->Actor->Region.ZoneNumber,
+				iViewZone,
+				Model->NumZones,
+				Viewport->Actor->Region.Zone,
+				Model->Zones[iViewZone].ZoneActor );
+		AndroidZoneRestoreLogCount++;
 	}
 #endif
 	ViewZoneMask		= iViewZone ? ~0 : 0;
@@ -3105,6 +3111,17 @@ void URender::OccludeFrame( FSceneNode* Frame )
 void URender::DrawFrame( FSceneNode* Frame )
 {
 	guard(URender::DrawFrame);
+#if PLATFORM_ANDROID
+	DOUBLE AndroidDrawFrameStart = appSeconds();
+	DOUBLE AndroidDrawFramePhaseStart = AndroidDrawFrameStart;
+	DOUBLE AndroidDrawFrameChildrenMs = 0.0;
+	DOUBLE AndroidDrawFramePrepMs = 0.0;
+	DOUBLE AndroidDrawFrameSurfacesMs = 0.0;
+	DOUBLE AndroidDrawFrameSpritesMs = 0.0;
+	DOUBLE AndroidDrawFrameOpticsMs = 0.0;
+	INT AndroidDrawFrameSurfaceCount = 0;
+	INT AndroidDrawFrameSpriteCount = 0;
+#endif
 	UViewport* Viewport = Frame->Viewport;
 	UModel*	   Model    = Frame->Level->Model;
 	check(Model->Nodes.Num()>0);
@@ -3113,6 +3130,10 @@ void URender::DrawFrame( FSceneNode* Frame )
 	// First, draw children.
 	for( FSceneNode* F=Frame->Child; F; F=F->Sibling )
 		DrawFrame( F );
+#if PLATFORM_ANDROID
+	AndroidDrawFrameChildrenMs = (appSeconds() - AndroidDrawFramePhaseStart) * 1000.0;
+	AndroidDrawFramePhaseStart = appSeconds();
+#endif
 
 	// Clear the Z-buffer if portal surfaces are visible.
 	if( Frame->Draw[0] )
@@ -3161,6 +3182,10 @@ void URender::DrawFrame( FSceneNode* Frame )
 #if PLATFORM_ANDROID && UT99_ANDROID_RENDER_DEEP_TRACE
 	debugf( NAME_Log, TEXT("UT99_ANDROID_V198_DRAWFRAME_STAGE stage=after_sort count=%i"), AndroidDrawFrameTraceCount );
 #endif
+#if PLATFORM_ANDROID
+	AndroidDrawFramePrepMs = (appSeconds() - AndroidDrawFramePhaseStart) * 1000.0;
+	AndroidDrawFramePhaseStart = appSeconds();
+#endif
 
 	// Render everything.
 	for( Pass=0; Pass<3; Pass++ )
@@ -3168,6 +3193,9 @@ void URender::DrawFrame( FSceneNode* Frame )
 		// Draw everything in the world.
 		for( FBspDrawListPtr* DrawPtr = FirstDraw[Pass]; DrawPtr<LastDraw[Pass]; DrawPtr++ )
 		{
+#if PLATFORM_ANDROID
+			AndroidDrawFrameSurfaceCount++;
+#endif
 			// Setup for this surface.
 			FBspDrawList*	Draw = DrawPtr->Ptr;
 			FBspSurf*		Surf = &Model->Surfs( Draw->iSurf );
@@ -3325,11 +3353,37 @@ void URender::DrawFrame( FSceneNode* Frame )
 			);
 
 			// Setup lighting for this surface.
+#if PLATFORM_ANDROID && UT99_ANDROID_CITYINTRO_SKIP_BSP_LIGHTING
+			UBOOL AndroidSkipCityIntroBspLighting = 0;
+			if
+			(	Viewport->Actor
+			&&	Viewport->Actor->Physics == PHYS_Interpolating
+			&&	Viewport->Actor->GetLevel()
+			&&	Viewport->Actor->GetLevel()->GetOuter()
+			&&	appStricmp( Viewport->Actor->GetLevel()->GetOuter()->GetName(), TEXT("CityIntro") ) == 0 )
+			{
+				static INT AndroidSkipBspLightingLogs = 0;
+				AndroidSkipCityIntroBspLighting = 1;
+				Surface.DetailTexture = NULL;
+				Surface.MacroTexture = NULL;
+				if( AndroidSkipBspLightingLogs < 8 )
+				{
+					AndroidSkipBspLightingLogs++;
+					debugf( NAME_Log, TEXT("UT99_ANDROID_V284_SKIP_CITYINTRO_BSP_LIGHTING surf=%i texture=%s"),
+						Draw->iSurf,
+						Texture ? Texture->GetFullName() : TEXT("None") );
+				}
+			}
+#endif
 			if
 			(	Surf->iLightMap!=INDEX_NONE
 			&&	Viewport->Actor->RendMap==REN_DynLight
 			&&	Model->LightMap.Num() 
-			&&	!Viewport->GetOuterUClient()->NoLighting )
+			&&	!Viewport->GetOuterUClient()->NoLighting
+#if PLATFORM_ANDROID && UT99_ANDROID_CITYINTRO_SKIP_BSP_LIGHTING
+			&&	!AndroidSkipCityIntroBspLighting
+#endif
+			)
 			{
 #if PLATFORM_ANDROID && UT99_ANDROID_RENDER_DEEP_TRACE
 				debugf( NAME_Log, TEXT("UT99_ANDROID_V198_DRAWFRAME_STAGE stage=before_light surf=%i lightMap=%i"), Draw->iSurf, Surf->iLightMap );
@@ -3508,6 +3562,10 @@ void URender::DrawFrame( FSceneNode* Frame )
 			if( Surface.LightMap || Surface.FogMap )
 				GLightManager->FinishSurf();
 		}
+#if PLATFORM_ANDROID
+		AndroidDrawFrameSurfacesMs += (appSeconds() - AndroidDrawFramePhaseStart) * 1000.0;
+		AndroidDrawFramePhaseStart = appSeconds();
+#endif
 
 		// Sort transparent sprites in front of masked and transparent geometry;
 		// sort all others in back of masked/transparent geometry.
@@ -3517,8 +3575,17 @@ void URender::DrawFrame( FSceneNode* Frame )
 			if
 			(	(Pass==2 && bTranslucent)
 			||	(Viewport->RenDev->SpanBased ? Pass==2 : (Pass==1 && !bTranslucent) ) )
+			{
+#if PLATFORM_ANDROID
+				AndroidDrawFrameSpriteCount++;
+#endif
 				DrawActorSprite( Frame, Sprite );
+			}
 		}
+#if PLATFORM_ANDROID
+		AndroidDrawFrameSpritesMs += (appSeconds() - AndroidDrawFramePhaseStart) * 1000.0;
+		AndroidDrawFramePhaseStart = appSeconds();
+#endif
 	}
 
 	// Optics.
@@ -3630,6 +3697,44 @@ void URender::DrawFrame( FSceneNode* Frame )
 	STAT(GStat.GMem += GMem.GetByteCount());
 	STAT(GStat.GDynMem += GDynMem.GetByteCount());
 	STAT(GStat.NodesTotal += Frame->Level->Model->Nodes.Num());
+#if PLATFORM_ANDROID
+	AndroidDrawFrameOpticsMs += (appSeconds() - AndroidDrawFramePhaseStart) * 1000.0;
+	static INT AndroidDrawFrameTimingFrames = 0;
+	static DOUBLE AndroidDrawFrameTotalAccum = 0.0;
+	static DOUBLE AndroidDrawFrameChildrenAccum = 0.0;
+	static DOUBLE AndroidDrawFramePrepAccum = 0.0;
+	static DOUBLE AndroidDrawFrameSurfacesAccum = 0.0;
+	static DOUBLE AndroidDrawFrameSpritesAccum = 0.0;
+	static DOUBLE AndroidDrawFrameOpticsAccum = 0.0;
+	static INT AndroidDrawFrameSurfaceCountAccum = 0;
+	static INT AndroidDrawFrameSpriteCountAccum = 0;
+	AndroidDrawFrameTimingFrames++;
+	AndroidDrawFrameTotalAccum += (appSeconds() - AndroidDrawFrameStart) * 1000.0;
+	AndroidDrawFrameChildrenAccum += AndroidDrawFrameChildrenMs;
+	AndroidDrawFramePrepAccum += AndroidDrawFramePrepMs;
+	AndroidDrawFrameSurfacesAccum += AndroidDrawFrameSurfacesMs;
+	AndroidDrawFrameSpritesAccum += AndroidDrawFrameSpritesMs;
+	AndroidDrawFrameOpticsAccum += AndroidDrawFrameOpticsMs;
+	AndroidDrawFrameSurfaceCountAccum += AndroidDrawFrameSurfaceCount;
+	AndroidDrawFrameSpriteCountAccum += AndroidDrawFrameSpriteCount;
+	if( AndroidDrawFrameTimingFrames >= 60 )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V282_DRAWFRAME_TIMING frames=%i avgTotalMs=%f avgChildrenMs=%f avgPrepMs=%f avgSurfacesMs=%f avgSpritesMs=%f avgOpticsMs=%f avgSurfaces=%f avgSprites=%f"),
+			AndroidDrawFrameTimingFrames,
+			AndroidDrawFrameTotalAccum / AndroidDrawFrameTimingFrames,
+			AndroidDrawFrameChildrenAccum / AndroidDrawFrameTimingFrames,
+			AndroidDrawFramePrepAccum / AndroidDrawFrameTimingFrames,
+			AndroidDrawFrameSurfacesAccum / AndroidDrawFrameTimingFrames,
+			AndroidDrawFrameSpritesAccum / AndroidDrawFrameTimingFrames,
+			AndroidDrawFrameOpticsAccum / AndroidDrawFrameTimingFrames,
+			(FLOAT)AndroidDrawFrameSurfaceCountAccum / AndroidDrawFrameTimingFrames,
+			(FLOAT)AndroidDrawFrameSpriteCountAccum / AndroidDrawFrameTimingFrames );
+		AndroidDrawFrameTimingFrames = 0;
+		AndroidDrawFrameTotalAccum = AndroidDrawFrameChildrenAccum = AndroidDrawFramePrepAccum = 0.0;
+		AndroidDrawFrameSurfacesAccum = AndroidDrawFrameSpritesAccum = AndroidDrawFrameOpticsAccum = 0.0;
+		AndroidDrawFrameSurfaceCountAccum = AndroidDrawFrameSpriteCountAccum = 0;
+	}
+#endif
 	unguard;
 }
 
@@ -3736,6 +3841,16 @@ INT URender::ClipDecal( FSceneNode* Frame, FDecal *Decal, UModel* Model, FBspSur
 void URender::DrawWorld( FSceneNode* Frame )
 {
 	guard(URender::DrawWorld);
+#if PLATFORM_ANDROID
+	DOUBLE AndroidWorldStart = appSeconds();
+	DOUBLE AndroidAudioGeomMs = 0.0;
+	DOUBLE AndroidLodMs = 0.0;
+	DOUBLE AndroidOccludeMs = 0.0;
+	DOUBLE AndroidDrawFrameMs = 0.0;
+	DOUBLE AndroidOverlayMs = 0.0;
+	DOUBLE AndroidCleanupMs = 0.0;
+	DOUBLE AndroidPhaseStart = AndroidWorldStart;
+#endif
 	FMemMark SceneMark(GSceneMem);
 	FMemMark MemMark(GMem);
 	FMemMark DynMark(GDynMem);
@@ -3755,6 +3870,10 @@ void URender::DrawWorld( FSceneNode* Frame )
 		// Give the audio subsystem a chance to process the listener's surrounding geometry.
 		if( Engine->Audio && !GIsEditor )
 			Engine->Audio->RenderAudioGeometry( Frame );
+#if PLATFORM_ANDROID
+		AndroidAudioGeomMs += (appSeconds() - AndroidPhaseStart) * 1000.0;
+		AndroidPhaseStart = appSeconds();
+#endif
 
 		// adjust LOD if rendering too slowly
 		if ( Frame->Viewport->Actor->GetLevel()->GetLevelInfo()->bDropDetail )
@@ -3768,10 +3887,22 @@ void URender::DrawWorld( FSceneNode* Frame )
 		}
 		else if ( GlobalShapeLODAdjust > 1.0 )
 			GlobalShapeLODAdjust = Clamp(GlobalShapeLODAdjust-0.1f,1.f,1.6f);
+#if PLATFORM_ANDROID
+		AndroidLodMs += (appSeconds() - AndroidPhaseStart) * 1000.0;
+		AndroidPhaseStart = appSeconds();
+#endif
 
 		// Occlude and render all scene frames.
 		OccludeFrame( Frame );
+#if PLATFORM_ANDROID
+		AndroidOccludeMs += (appSeconds() - AndroidPhaseStart) * 1000.0;
+		AndroidPhaseStart = appSeconds();
+#endif
 		DrawFrame( Frame );
+#if PLATFORM_ANDROID
+		AndroidDrawFrameMs += (appSeconds() - AndroidPhaseStart) * 1000.0;
+		AndroidPhaseStart = appSeconds();
+#endif
 	// Have HUD draw the player's weapon on top (and any other overlays which should happen before screen flashes). 
 	if( !ValidateDrawWorldObject( Frame->Viewport->Actor->ViewTarget, TEXT("Viewport.Actor.ViewTarget") ) )
 		Frame->Viewport->Actor->ViewTarget = NULL;
@@ -3786,6 +3917,27 @@ void URender::DrawWorld( FSceneNode* Frame )
 	&&	Actor
 	&&	(Frame->Viewport->Actor->ShowFlags & SHOW_Actors) )
 	{
+#if PLATFORM_ANDROID
+		UBOOL AndroidSkipCityIntroOverlay = 0;
+		if
+		(	Frame->Viewport
+		&&	Frame->Viewport->Actor
+		&&	Frame->Viewport->Actor->Physics == PHYS_Interpolating
+		&&	Frame->Viewport->Actor->GetLevel()
+		&&	Frame->Viewport->Actor->GetLevel()->GetOuter()
+		&&	appStricmp( Frame->Viewport->Actor->GetLevel()->GetOuter()->GetName(), TEXT("CityIntro") ) == 0 )
+		{
+			static INT AndroidOverlaySkipLogs = 0;
+			AndroidSkipCityIntroOverlay = 1;
+			if( AndroidOverlaySkipLogs < 4 )
+			{
+				AndroidOverlaySkipLogs++;
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V283_SKIP_CITYINTRO_OVERLAY actor=%s"),
+					Frame->Viewport->Actor->GetFullName() );
+			}
+		}
+		if( !AndroidSkipCityIntroOverlay )
+#endif
 		if( ValidateDrawWorldObject( Actor, TEXT("Overlay.Actor") ) && Frame->Viewport->Canvas )
 		{
 			GUglyHackFlags|=1;
@@ -3793,6 +3945,10 @@ void URender::DrawWorld( FSceneNode* Frame )
 			GUglyHackFlags&=~1;
 		}
 	}
+#if PLATFORM_ANDROID
+	AndroidOverlayMs += (appSeconds() - AndroidPhaseStart) * 1000.0;
+	AndroidPhaseStart = appSeconds();
+#endif
 
 	}
 	catch (...)
@@ -3804,6 +3960,40 @@ void URender::DrawWorld( FSceneNode* Frame )
 	DynMark.Pop();
 	SceneMark.Pop();
 	VectorMark.Pop();
+#if PLATFORM_ANDROID
+	AndroidCleanupMs += (appSeconds() - AndroidPhaseStart) * 1000.0;
+	static INT AndroidWorldTimingFrames = 0;
+	static DOUBLE AndroidWorldTotal = 0.0;
+	static DOUBLE AndroidWorldAudioGeom = 0.0;
+	static DOUBLE AndroidWorldLod = 0.0;
+	static DOUBLE AndroidWorldOcclude = 0.0;
+	static DOUBLE AndroidWorldDrawFrame = 0.0;
+	static DOUBLE AndroidWorldOverlay = 0.0;
+	static DOUBLE AndroidWorldCleanup = 0.0;
+	AndroidWorldTimingFrames++;
+	AndroidWorldTotal += (appSeconds() - AndroidWorldStart) * 1000.0;
+	AndroidWorldAudioGeom += AndroidAudioGeomMs;
+	AndroidWorldLod += AndroidLodMs;
+	AndroidWorldOcclude += AndroidOccludeMs;
+	AndroidWorldDrawFrame += AndroidDrawFrameMs;
+	AndroidWorldOverlay += AndroidOverlayMs;
+	AndroidWorldCleanup += AndroidCleanupMs;
+	if( AndroidWorldTimingFrames >= 60 )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V281_DRAWWORLD_TIMING frames=%i avgTotalMs=%f avgAudioGeomMs=%f avgLodMs=%f avgOccludeMs=%f avgDrawFrameMs=%f avgOverlayMs=%f avgCleanupMs=%f"),
+			AndroidWorldTimingFrames,
+			AndroidWorldTotal / AndroidWorldTimingFrames,
+			AndroidWorldAudioGeom / AndroidWorldTimingFrames,
+			AndroidWorldLod / AndroidWorldTimingFrames,
+			AndroidWorldOcclude / AndroidWorldTimingFrames,
+			AndroidWorldDrawFrame / AndroidWorldTimingFrames,
+			AndroidWorldOverlay / AndroidWorldTimingFrames,
+			AndroidWorldCleanup / AndroidWorldTimingFrames );
+		AndroidWorldTimingFrames = 0;
+		AndroidWorldTotal = AndroidWorldAudioGeom = AndroidWorldLod = AndroidWorldOcclude = 0.0;
+		AndroidWorldDrawFrame = AndroidWorldOverlay = AndroidWorldCleanup = 0.0;
+	}
+#endif
 	unguard;
 }
 

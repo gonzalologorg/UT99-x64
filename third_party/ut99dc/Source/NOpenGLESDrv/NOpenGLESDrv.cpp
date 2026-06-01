@@ -36,6 +36,16 @@ static INT GAndroidGLESFrameCounter = 0;
 static INT GAndroidGLESSurfaceCount = 0;
 static INT GAndroidGLESGouraudCount = 0;
 static INT GAndroidGLESTileCount = 0;
+#if PLATFORM_ANDROID
+static INT GAndroidGLESSetTextureCalls[4] = {0,0,0,0};
+static INT GAndroidGLESSetTextureInvalid[4] = {0,0,0,0};
+static INT GAndroidGLESSetTextureNew[4] = {0,0,0,0};
+static INT GAndroidGLESSetTextureRealtime[4] = {0,0,0,0};
+static INT GAndroidGLESSetTextureUploads[4] = {0,0,0,0};
+static INT GAndroidGLESUploadMips = 0;
+static INT GAndroidGLESUploadBytes = 0;
+static DOUBLE GAndroidGLESUploadMs[4] = {0.0,0.0,0.0,0.0};
+#endif
 
 /*-----------------------------------------------------------------------------
 	UNOpenGLESRenderDevice implementation.
@@ -344,6 +354,35 @@ void UNOpenGLESRenderDevice::Unlock( UBOOL Blit )
 
 #if !PLATFORM_ANDROID
 	glFlush();
+#endif
+#if PLATFORM_ANDROID
+	if( GAndroidGLESFrameCounter > 0 && (GAndroidGLESFrameCounter % 60) == 0 )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V286_GLES_TEXTURE_TIMING frame=%i set0=%i set1=%i set2=%i set3=%i invalid=%i,%i,%i,%i new=%i,%i,%i,%i realtime=%i,%i,%i,%i uploads=%i,%i,%i,%i uploadMs=%f,%f,%f,%f uploadMips=%i uploadBytes=%i surfaces=%i gouraud=%i tiles=%i"),
+			GAndroidGLESFrameCounter,
+			GAndroidGLESSetTextureCalls[0], GAndroidGLESSetTextureCalls[1], GAndroidGLESSetTextureCalls[2], GAndroidGLESSetTextureCalls[3],
+			GAndroidGLESSetTextureInvalid[0], GAndroidGLESSetTextureInvalid[1], GAndroidGLESSetTextureInvalid[2], GAndroidGLESSetTextureInvalid[3],
+			GAndroidGLESSetTextureNew[0], GAndroidGLESSetTextureNew[1], GAndroidGLESSetTextureNew[2], GAndroidGLESSetTextureNew[3],
+			GAndroidGLESSetTextureRealtime[0], GAndroidGLESSetTextureRealtime[1], GAndroidGLESSetTextureRealtime[2], GAndroidGLESSetTextureRealtime[3],
+			GAndroidGLESSetTextureUploads[0], GAndroidGLESSetTextureUploads[1], GAndroidGLESSetTextureUploads[2], GAndroidGLESSetTextureUploads[3],
+			GAndroidGLESUploadMs[0], GAndroidGLESUploadMs[1], GAndroidGLESUploadMs[2], GAndroidGLESUploadMs[3],
+			GAndroidGLESUploadMips,
+			GAndroidGLESUploadBytes,
+			GAndroidGLESSurfaceCount,
+			GAndroidGLESGouraudCount,
+			GAndroidGLESTileCount );
+		for( INT i=0; i<4; i++ )
+		{
+			GAndroidGLESSetTextureCalls[i] = 0;
+			GAndroidGLESSetTextureInvalid[i] = 0;
+			GAndroidGLESSetTextureNew[i] = 0;
+			GAndroidGLESSetTextureRealtime[i] = 0;
+			GAndroidGLESSetTextureUploads[i] = 0;
+			GAndroidGLESUploadMs[i] = 0.0;
+		}
+		GAndroidGLESUploadMips = 0;
+		GAndroidGLESUploadBytes = 0;
+	}
 #endif
 #if PLATFORM_ANDROID && UT99_ANDROID_GLES_TRACE
 	if( GAndroidGLESFrameCounter <= 12 || (GAndroidGLESFrameCounter % 60) == 0 )
@@ -1066,6 +1105,8 @@ void UNOpenGLESRenderDevice::SetTexture( INT TMU, FTextureInfo& Info, DWORD Poly
 {
 	guard(UNOpenGLESRenderDevice::SetTexture);
 #if PLATFORM_ANDROID
+	if( TMU >= 0 && TMU < 4 )
+		GAndroidGLESSetTextureCalls[TMU]++;
 	// debugf( NAME_Log, TEXT("UT99_ANDROID_V199_SETTEXTURE stage=begin tmu=%i cache=0x%08x%08x mips=%i size=%ix%i clamp=%ix%i scale=%f,%f format=%i palette=%p data0=%p poly=0x%08x"),
 	// 	TMU,
 	// 	(DWORD)(Info.CacheID >> 32),
@@ -1083,6 +1124,8 @@ void UNOpenGLESRenderDevice::SetTexture( INT TMU, FTextureInfo& Info, DWORD Poly
 	// 	PolyFlags );
 	if( Info.NumMips <= 0 || !Info.Mips[0] || !Info.Mips[0]->DataPtr || Info.USize <= 0 || Info.VSize <= 0 || Info.UScale == 0.0f || Info.VScale == 0.0f )
 	{
+		if( TMU >= 0 && TMU < 4 )
+			GAndroidGLESSetTextureInvalid[TMU]++;
 		// debugf( NAME_Warning, TEXT("UT99_ANDROID_V199_SETTEXTURE_SKIP_BAD tmu=%i cache=0x%08x%08x"), TMU, (DWORD)(Info.CacheID >> 32), (DWORD)Info.CacheID );
 		ResetTexture( TMU );
 		return;
@@ -1123,6 +1166,15 @@ void UNOpenGLESRenderDevice::SetTexture( INT TMU, FTextureInfo& Info, DWORD Poly
 		glGenTextures( 1, &Bind->Id );
 		TexAlloc.AddItem( Bind->Id );
 	}
+#if PLATFORM_ANDROID
+	if( TMU >= 0 && TMU < 4 )
+	{
+		if( !OldBind )
+			GAndroidGLESSetTextureNew[TMU]++;
+		if( RealtimeChanged )
+			GAndroidGLESSetTextureRealtime[TMU]++;
+	}
+#endif
 
 	glActiveTexture( GL_TEXTURE0 + TMU );
 	glBindTexture( GL_TEXTURE_2D, Bind->Id );
@@ -1133,9 +1185,15 @@ void UNOpenGLESRenderDevice::SetTexture( INT TMU, FTextureInfo& Info, DWORD Poly
 		Info.bRealtimeChanged = 0;
 #if PLATFORM_ANDROID
 		// debugf( NAME_Log, TEXT("UT99_ANDROID_V199_SETTEXTURE stage=before_upload tmu=%i new=%i realtime=%i texId=%u"), TMU, !OldBind, RealtimeChanged, Bind->Id );
+		const DOUBLE AndroidUploadStart = appSeconds();
 #endif
 		UploadTexture( Info, ( PolyFlags & PF_Masked ), !OldBind );
 #if PLATFORM_ANDROID
+		if( TMU >= 0 && TMU < 4 )
+		{
+			GAndroidGLESSetTextureUploads[TMU]++;
+			GAndroidGLESUploadMs[TMU] += (appSeconds() - AndroidUploadStart) * 1000.0;
+		}
 		// debugf( NAME_Log, TEXT("UT99_ANDROID_V199_SETTEXTURE stage=after_upload tmu=%i glerr=0x%04x"), TMU, (DWORD)glGetError() );
 #endif
 		// TODO: This depends on PolyFlags, not Info.
@@ -1188,6 +1246,10 @@ void UNOpenGLESRenderDevice::UploadTexture( FTextureInfo& Info, UBOOL Masked, UB
 // #endif
 		BYTE* UploadBuf;
 		GLenum UploadFormat;
+#if PLATFORM_ANDROID
+		GAndroidGLESUploadMips++;
+		GAndroidGLESUploadBytes += Mip->USize * Mip->VSize * 4;
+#endif
 		// Convert texture if needed.
 		if( Info.Palette )
 		{

@@ -103,6 +103,12 @@ Revision history:
 #define SHADOW_SMOOTHING 1 /* Smooth shadows (should be 1) */
 #define ZERO_FLOAT_LIGHT (FLOAT)((3<<22) + 0x10)
 
+#if PLATFORM_ANDROID
+#ifndef UT99_ANDROID_DISABLE_BSP_DYNAMIC_LIGHTMAPS
+#define UT99_ANDROID_DISABLE_BSP_DYNAMIC_LIGHTMAPS 1
+#endif
+#endif
+
 /*------------------------------------------------------------------------------------
 	Approximate math implementation.
 ------------------------------------------------------------------------------------*/
@@ -1824,6 +1830,22 @@ void FLightManager::SetupForSurf
 	}
 
 	// Merge in the dynamic lights.
+#if PLATFORM_ANDROID && UT99_ANDROID_DISABLE_BSP_DYNAMIC_LIGHTMAPS
+	if( DynamicLights || MovingLights )
+	{
+		static INT AndroidSkipDynamicLightmapLogs = 0;
+		if( AndroidSkipDynamicLightmapLogs < 16 || (AndroidSkipDynamicLightmapLogs % 240) == 0 )
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V287_SKIP_BSP_DYNAMIC_LIGHTMAP surf=%i dynamic=%i moving=%i cache=0x%08x%08x"),
+				Draw->iSurf,
+				DynamicLights,
+				MovingLights,
+				(DWORD)(LightMap.CacheID >> 32),
+				(DWORD)LightMap.CacheID );
+		AndroidSkipDynamicLightmapLogs++;
+		DynamicLights = 0;
+		MovingLights = 0;
+	}
+#endif
 	if( DynamicLights || MovingLights )
 	{
 		guard(DynamicLight);

@@ -20,10 +20,39 @@ static UBOOL IsKnownTextureObject( UObject* Object )
 	guardSlow(IsKnownTextureObject);
 	if( !Object )
 		return 1;
+#if PLATFORM_ANDROID
+	QWORD Ptr = (QWORD)Object;
+	if( Ptr < 0x10000ull )
+		return 0;
+	if( sizeof(void*) == 8 && Ptr < 0x100000000ull )
+		return 0;
+	if( sizeof(void*) == 8 && Ptr >= 0x0000800000000000ull )
+		return 0;
+	static TArray<UObject*> KnownObjects;
+	static TArray<UObject*> BadObjects;
+	INT FoundIndex;
+	if( KnownObjects.FindItem( Object, FoundIndex ) )
+		return 1;
+	if( BadObjects.FindItem( Object, FoundIndex ) )
+		return 0;
+	for( FObjectIterator It; It; ++It )
+	{
+		if( *It == Object )
+		{
+			if( KnownObjects.Num() < 4096 )
+				KnownObjects.AddItem( Object );
+			return 1;
+		}
+	}
+	if( BadObjects.Num() < 4096 )
+		BadObjects.AddItem( Object );
+	return 0;
+#else
 	for( FObjectIterator It; It; ++It )
 		if( *It == Object )
 			return 1;
 	return 0;
+#endif
 	unguardSlow;
 }
 
@@ -171,7 +200,10 @@ void UTexture::Lock( FTextureInfo& TextureInfo, DOUBLE CurrentTime, INT LOD, URe
 	TextureInfo.Palette			= (TextureInfo.Format==TEXF_P8) ? (Palette ? GetColors() : GetSafeP8Palette()) : GetColors();
 	if( Format==TEXF_P8 && !Palette )
 	{
-		debugf( NAME_Warning, TEXT("UT99_ANDROID_V203_USING_SAFE_P8_PALETTE texture=%s"), GetFullName() );
+		static INT AndroidSafeP8PaletteLogs = 0;
+		if( AndroidSafeP8PaletteLogs < 32 )
+			debugf( NAME_Warning, TEXT("UT99_ANDROID_V203_USING_SAFE_P8_PALETTE texture=%s"), GetFullName() );
+		AndroidSafeP8PaletteLogs++;
 		TextureInfo.PaletteCacheID = MakeCacheID( CID_RenderPalette, this ) ^ 0x5afe9a1e;
 	}
 	if( !bParametric && (!RenDev || !RenDev->PrefersDeferredLoad) )
@@ -285,14 +317,14 @@ void UTexture::ConstantTimeTick()
 	guard(UTexture::ConstantTimeTick);
 
 	// Simple cyclic animation.
-	if( !IsKnownTextureObject( AnimCur ) )
+	if( !IsKnownTextureObject( AnimCur ) || (AnimCur && !AnimCur->IsA(UTexture::StaticClass())) )
 	{
 		debugf( NAME_Warning, TEXT("UT99_ANDROID_V187_BAD_TEXTURE_ANIM texture=%s field=AnimCur object=%p"), GetFullName(), AnimCur );
 		AnimCur = this;
 	}
 	if( !AnimCur )
 		AnimCur = this;
-	if( !IsKnownTextureObject( AnimCur->AnimNext ) )
+	if( !IsKnownTextureObject( AnimCur->AnimNext ) || (AnimCur->AnimNext && !AnimCur->AnimNext->IsA(UTexture::StaticClass())) )
 	{
 		debugf( NAME_Warning, TEXT("UT99_ANDROID_V187_BAD_TEXTURE_ANIM texture=%s field=AnimNext owner=%s object=%p"),
 			GetFullName(),

@@ -26,9 +26,24 @@ static UBOOL AndroidKnownMeshObject( UObject* Object )
 	guardSlow(AndroidKnownMeshObject);
 	if( !Object )
 		return 0;
+	static TArray<UObject*> KnownObjects;
+	static TArray<UObject*> BadObjects;
+	INT FoundIndex;
+	if( KnownObjects.FindItem( Object, FoundIndex ) )
+		return 1;
+	if( BadObjects.FindItem( Object, FoundIndex ) )
+		return 0;
 	for( FObjectIterator It; It; ++It )
+	{
 		if( *It == Object )
+		{
+			if( KnownObjects.Num() < 4096 )
+				KnownObjects.AddItem( Object );
 			return 1;
+		}
+	}
+	if( BadObjects.Num() < 4096 )
+		BadObjects.AddItem( Object );
 	return 0;
 	unguardSlow;
 }
@@ -65,12 +80,31 @@ static UBOOL AndroidKnownObject( UObject* Object, UClass* ExpectedClass )
 	guardSlow(AndroidKnownObject);
 	if( !Object )
 		return 0;
+	static TArray<UObject*> KnownObjects;
+	static TArray<UObject*> BadObjects;
+	INT FoundIndex;
+	if( KnownObjects.FindItem( Object, FoundIndex ) )
+		return !ExpectedClass || Object->IsA(ExpectedClass);
+	if( BadObjects.FindItem( Object, FoundIndex ) )
+		return 0;
 	for( FObjectIterator It; It; ++It )
 	{
 		UObject* Candidate = *It;
 		if( Candidate == Object )
+		{
+			if( ExpectedClass && !Candidate->IsA(ExpectedClass) )
+			{
+				if( BadObjects.Num() < 4096 )
+					BadObjects.AddItem( Object );
+				return 0;
+			}
+			if( KnownObjects.Num() < 4096 )
+				KnownObjects.AddItem( Object );
 			return !ExpectedClass || Candidate->IsA(ExpectedClass);
+		}
 	}
+	if( BadObjects.Num() < 4096 )
+		BadObjects.AddItem( Object );
 	return 0;
 	unguardSlow;
 }
