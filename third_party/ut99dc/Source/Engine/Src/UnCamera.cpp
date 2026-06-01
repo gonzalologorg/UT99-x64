@@ -266,6 +266,52 @@ void FSceneNode::ComputeRenderCoords( FVector& Location, FRotator& Rotation )
 	:								           GMath.ViewCoords / Rotation) / Location;
 	Uncoords = Coords.Transpose();
 	ComputeRenderSize();
+#if PLATFORM_ANDROID
+	static INT AndroidCityIntroFrameCoordsLogs = 0;
+	if
+	(	Viewport
+	&&	Viewport->Actor
+	&&	Viewport->Actor->GetLevel()
+	&&	Viewport->Actor->GetLevel()->GetOuter()
+	&&	appStricmp( Viewport->Actor->GetLevel()->GetOuter()->GetName(), TEXT("CityIntro") ) == 0
+	&&	AndroidCityIntroFrameCoordsLogs < 64 )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V258_FRAME_COORDS count=%i loc=%f,%f,%f rot=%i,%i,%i rend=%i fov=%f size=%ix%i coordsO=%f,%f,%f x=%f,%f,%f y=%f,%f,%f z=%f,%f,%f unx=%f,%f,%f uny=%f,%f,%f unz=%f,%f,%f"),
+			AndroidCityIntroFrameCoordsLogs,
+			Location.X,
+			Location.Y,
+			Location.Z,
+			Rotation.Pitch,
+			Rotation.Yaw,
+			Rotation.Roll,
+			Viewport->Actor->RendMap,
+			Viewport->Actor->FovAngle,
+			X,
+			Y,
+			Coords.Origin.X,
+			Coords.Origin.Y,
+			Coords.Origin.Z,
+			Coords.XAxis.X,
+			Coords.XAxis.Y,
+			Coords.XAxis.Z,
+			Coords.YAxis.X,
+			Coords.YAxis.Y,
+			Coords.YAxis.Z,
+			Coords.ZAxis.X,
+			Coords.ZAxis.Y,
+			Coords.ZAxis.Z,
+			Uncoords.XAxis.X,
+			Uncoords.XAxis.Y,
+			Uncoords.XAxis.Z,
+			Uncoords.YAxis.X,
+			Uncoords.YAxis.Y,
+			Uncoords.YAxis.Z,
+			Uncoords.ZAxis.X,
+			Uncoords.ZAxis.Y,
+			Uncoords.ZAxis.Z );
+		AndroidCityIntroFrameCoordsLogs++;
+	}
+#endif
 #if PLATFORM_ANDROID && UT99_ANDROID_FRAME_TRACE
 	static INT AndroidFrameCoordsLogs = 0;
 	if( AndroidFrameCoordsLogs++ < 16 || (AndroidFrameCoordsLogs % 60) == 0 )

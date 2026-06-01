@@ -478,8 +478,8 @@ public class GameActivity extends SDLActivity {
         java.io.File root = getUt99ConfigRootV63();
         java.io.File maps = root == null ? null : new java.io.File(root, "Maps");
         String startupMap = "Entry.unr";
-        if (maps != null && new java.io.File(maps, "Entry.unr").isFile()) {
-            startupMap = "Entry.unr";
+        if (maps != null && new java.io.File(maps, "CityIntro.unr").isFile()) {
+            startupMap = "CityIntro.unr";
         }
         android.util.Log.i("UT99Android", "UT99_ANDROID_V244_STARTUP_MAP map=" + startupMap);
         return startupMap;

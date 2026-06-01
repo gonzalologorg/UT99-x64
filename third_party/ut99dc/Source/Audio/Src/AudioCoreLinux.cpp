@@ -416,6 +416,11 @@ UBOOL AudioLock(AudioMutex* Mutex)
 	return 1;
 }
 
+UBOOL AudioTryLock(AudioMutex* Mutex)
+{
+	return pthread_mutex_trylock((pthread_mutex_t*) Mutex->Mutex)==0;
+}
+
 UBOOL AudioUnlock(AudioMutex* Mutex)
 {
 	pthread_mutex_unlock((pthread_mutex_t*) Mutex->Mutex);

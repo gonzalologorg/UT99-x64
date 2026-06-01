@@ -20,6 +20,211 @@ static FTextureInfo TextureInfo[16];
 static FTextureInfo EnvironmentInfo;
 static FVector      GUnlitColor;
 
+#if PLATFORM_ANDROID
+static UBOOL AndroidKnownMeshObject( UObject* Object )
+{
+	guardSlow(AndroidKnownMeshObject);
+	if( !Object )
+		return 0;
+	for( FObjectIterator It; It; ++It )
+		if( *It == Object )
+			return 1;
+	return 0;
+	unguardSlow;
+}
+
+static UObject* AndroidRecoverTruncatedObject( UObject* Object, UClass* ExpectedClass )
+{
+	guardSlow(AndroidRecoverTruncatedObject);
+#if defined(PLATFORM_64BIT)
+	if( !Object )
+		return NULL;
+	const DWORD LowBits = (DWORD)(QWORD)Object;
+	UObject* Match = NULL;
+	INT MatchCount = 0;
+	for( FObjectIterator It; It; ++It )
+	{
+		UObject* Candidate = *It;
+		if( Candidate && (DWORD)(QWORD)Candidate == LowBits && (!ExpectedClass || Candidate->IsA(ExpectedClass)) )
+		{
+			Match = Candidate;
+			MatchCount++;
+			if( MatchCount > 1 )
+				break;
+		}
+	}
+	if( MatchCount == 1 )
+		return Match;
+#endif
+	return NULL;
+	unguardSlow;
+}
+
+static UBOOL AndroidKnownObject( UObject* Object, UClass* ExpectedClass )
+{
+	guardSlow(AndroidKnownObject);
+	if( !Object )
+		return 0;
+	for( FObjectIterator It; It; ++It )
+	{
+		UObject* Candidate = *It;
+		if( Candidate == Object )
+			return !ExpectedClass || Candidate->IsA(ExpectedClass);
+	}
+	return 0;
+	unguardSlow;
+}
+
+static UBOOL AndroidLooksImpossibleObjectPtr( UObject* Object )
+{
+	guardSlow(AndroidLooksImpossibleObjectPtr);
+	QWORD Ptr = (QWORD)Object;
+	if( Ptr < 0x10000 )
+		return 1;
+#if defined(PLATFORM_64BIT)
+	if( (Ptr >> 56) == 0xff )
+		return 1;
+	if( ((Ptr >> 32) == 0) && ((Ptr & 0xffffffff) >= 0x10000) )
+		return 1;
+#endif
+	return 0;
+	unguardSlow;
+}
+
+static UTexture* AndroidValidateLodTexture( AActor* Owner, UTexture* Texture, const TCHAR* Context )
+{
+	guardSlow(AndroidValidateLodTexture);
+	if( !Texture )
+		return NULL;
+	static UTexture* RecentValid[64] = {0};
+	static UTexture* RecentInvalid[64] = {0};
+	static INT RecentValidNext = 0;
+	static INT RecentInvalidNext = 0;
+	for( INT i=0; i<ARRAY_COUNT(RecentValid); i++ )
+		if( RecentValid[i] == Texture )
+			return Texture;
+	for( INT i=0; i<ARRAY_COUNT(RecentInvalid); i++ )
+		if( RecentInvalid[i] == Texture )
+			return NULL;
+	if( AndroidLooksImpossibleObjectPtr( Texture ) )
+	{
+		RecentInvalid[RecentInvalidNext++ & (ARRAY_COUNT(RecentInvalid)-1)] = Texture;
+		static INT AndroidImpossibleTextureLogs = 0;
+		if( AndroidImpossibleTextureLogs < 64 )
+		{
+			debugf( NAME_Warning, TEXT("UT99_ANDROID_V266_BAD_LOD_TEXTURE context=%s actor=%s texture=%p ownerTex=%p skin=%p zone=%p"),
+				Context,
+				Owner ? Owner->GetFullName() : TEXT("None"),
+				Texture,
+				Owner ? Owner->Texture : NULL,
+				Owner ? Owner->Skin : NULL,
+				Owner ? Owner->Region.Zone : NULL );
+			AndroidImpossibleTextureLogs++;
+		}
+		return NULL;
+	}
+	if( AndroidKnownObject( Texture, UTexture::StaticClass() ) )
+	{
+		RecentValid[RecentValidNext++ & (ARRAY_COUNT(RecentValid)-1)] = Texture;
+		return Texture;
+	}
+	UObject* Recovered = AndroidRecoverTruncatedObject( Texture, UTexture::StaticClass() );
+	if( Recovered )
+	{
+		debugf( NAME_Warning, TEXT("UT99_ANDROID_V266_RECOVER_LOD_TEXTURE context=%s actor=%s old=%p new=%p"),
+			Context,
+			Owner ? Owner->GetFullName() : TEXT("None"),
+			Texture,
+			Recovered );
+		RecentValid[RecentValidNext++ & (ARRAY_COUNT(RecentValid)-1)] = (UTexture*)Recovered;
+		return (UTexture*)Recovered;
+	}
+	RecentInvalid[RecentInvalidNext++ & (ARRAY_COUNT(RecentInvalid)-1)] = Texture;
+	static INT AndroidBadLodTextureLogs = 0;
+	if( AndroidBadLodTextureLogs < 64 )
+	{
+		debugf( NAME_Warning, TEXT("UT99_ANDROID_V266_BAD_LOD_TEXTURE context=%s actor=%s texture=%p ownerTex=%p skin=%p zone=%p"),
+			Context,
+			Owner ? Owner->GetFullName() : TEXT("None"),
+			Texture,
+			Owner ? Owner->Texture : NULL,
+			Owner ? Owner->Skin : NULL,
+			Owner ? Owner->Region.Zone : NULL );
+		AndroidBadLodTextureLogs++;
+	}
+	return NULL;
+	unguardSlow;
+}
+
+static UTexture* AndroidMeshFallbackTexture( FSceneNode* Frame, AActor* Owner, const TCHAR* Context )
+{
+	guardSlow(AndroidMeshFallbackTexture);
+	UTexture* Fallback = NULL;
+	if( Owner && Owner->Level )
+		Fallback = Owner->Level->DefaultTexture;
+	Fallback = AndroidValidateLodTexture( Owner, Fallback, Context );
+	if( !Fallback && Frame && Frame->Viewport && Frame->Viewport->Actor && Frame->Viewport->Actor->Level )
+		Fallback = AndroidValidateLodTexture( Owner, Frame->Viewport->Actor->Level->DefaultTexture, Context );
+	if( Fallback )
+	{
+		static INT AndroidFallbackLogs = 0;
+		if( AndroidFallbackLogs < 64 )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V269_MESH_TEXTURE_FALLBACK context=%s actor=%s texture=%s"),
+				Context,
+				Owner ? Owner->GetFullName() : TEXT("None"),
+				Fallback->GetFullName() );
+			AndroidFallbackLogs++;
+		}
+	}
+	return Fallback;
+	unguardSlow;
+}
+
+static UBOOL AndroidValidateLodMesh( AActor* Owner, ULodMesh* Mesh, const TCHAR* Context )
+{
+	guardSlow(AndroidValidateLodMesh);
+	if( !Owner || !Mesh || !AndroidKnownMeshObject(Mesh) || !Mesh->IsA(ULodMesh::StaticClass()) )
+	{
+		debugf( NAME_Warning, TEXT("UT99_ANDROID_V265_BAD_LOD_MESH context=%s actor=%s mesh=%p"),
+			Context,
+			Owner ? Owner->GetFullName() : TEXT("None"),
+			Mesh );
+		return 0;
+	}
+	if
+	(	Mesh->ModelVerts <= 0
+	||	Mesh->ModelVerts > Mesh->FrameVerts
+	||	Mesh->SpecialVerts < 0
+	||	Mesh->SpecialVerts > 256
+	||	Mesh->Faces.Num() < 0
+	||	Mesh->Wedges.Num() < 0
+	||	Mesh->Materials.Num() < 0
+	||	Mesh->FaceLevel.Num() < Mesh->Faces.Num()
+	||	Mesh->Wedges.Num() > 262144
+	||	Mesh->Faces.Num() > 262144
+	||	Mesh->Materials.Num() > 4096 )
+	{
+		debugf( NAME_Warning, TEXT("UT99_ANDROID_V265_BAD_LOD_DATA context=%s actor=%s mesh=%s model=%i frame=%i special=%i faces=%i wedges=%i mats=%i faceLevel=%i collapseW=%i collapseP=%i"),
+			Context,
+			Owner->GetFullName(),
+			Mesh->GetFullName(),
+			Mesh->ModelVerts,
+			Mesh->FrameVerts,
+			Mesh->SpecialVerts,
+			Mesh->Faces.Num(),
+			Mesh->Wedges.Num(),
+			Mesh->Materials.Num(),
+			Mesh->FaceLevel.Num(),
+			Mesh->CollapseWedgeThus.Num(),
+			Mesh->CollapsePointThus.Num() );
+		return 0;
+	}
+	return 1;
+	unguardSlow;
+}
+#endif
+
 /*------------------------------------------------------------------------------
 	Environment mapping.
 ------------------------------------------------------------------------------*/
@@ -330,6 +535,42 @@ void URender::DrawMesh
 	STAT(clock(GStat.MeshTime));
 	FMemMark Mark(GMem);
 	UMesh*  Mesh = Owner->Mesh;
+#if PLATFORM_ANDROID
+	static INT AndroidMeshEntryLogs = 0;
+	if( AndroidMeshEntryLogs < 64 )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V267_MESH_ENTRY actor=%s mesh=%p meshName=%s frameVerts=%i tris=%i textures=%i skin=%p texture=%p zone=%p"),
+			Owner ? Owner->GetFullName() : TEXT("None"),
+			Mesh,
+			(Mesh && AndroidKnownObject(Mesh, UMesh::StaticClass())) ? Mesh->GetFullName() : TEXT("Invalid"),
+			Mesh ? Mesh->FrameVerts : -1,
+			Mesh ? Mesh->Tris.Num() : -1,
+			Mesh ? Mesh->Textures.Num() : -1,
+			Owner ? Owner->Skin : NULL,
+			Owner ? Owner->Texture : NULL,
+			Owner ? Owner->Region.Zone : NULL );
+		AndroidMeshEntryLogs++;
+	}
+	if
+	(	!AndroidKnownObject(Mesh, UMesh::StaticClass())
+	||	Mesh->FrameVerts <= 0
+	||	Mesh->FrameVerts > 262144
+	||	Mesh->Tris.Num() < 0
+	||	Mesh->Tris.Num() > 262144
+	||	Mesh->Textures.Num() < 0
+	||	Mesh->Textures.Num() > ARRAY_COUNT(TextureInfo) )
+	{
+		debugf( NAME_Warning, TEXT("UT99_ANDROID_V267_BAD_MESH_DATA actor=%s mesh=%p frameVerts=%i tris=%i textures=%i"),
+			Owner ? Owner->GetFullName() : TEXT("None"),
+			Mesh,
+			Mesh ? Mesh->FrameVerts : -1,
+			Mesh ? Mesh->Tris.Num() : -1,
+			Mesh ? Mesh->Textures.Num() : -1 );
+		STAT(unclock(GStat.MeshTime));
+		Mark.Pop();
+		return;
+	}
+#endif
 	FVector Hack = FVector(0,-8,0);
 	UBOOL NotWeaponHeuristic=(Owner->Owner!=Frame->Viewport->Actor);
 	if( !Engine->Client->CurvedSurfaces )
@@ -488,6 +729,20 @@ void URender::DrawMesh
 		for( INT i=0; i<Mesh->Tris.Num(); i++ )
 		{
 			FMeshTri*   Tri = &Mesh->Tris(i);
+#if PLATFORM_ANDROID
+			if( Tri->iVertex[0] < 0 || Tri->iVertex[0] >= Mesh->FrameVerts || Tri->iVertex[1] < 0 || Tri->iVertex[1] >= Mesh->FrameVerts || Tri->iVertex[2] < 0 || Tri->iVertex[2] >= Mesh->FrameVerts )
+			{
+				debugf( NAME_Warning, TEXT("UT99_ANDROID_V267_BAD_TRI_VERTEX actor=%s mesh=%s tri=%i verts=%i,%i,%i frameVerts=%i"),
+					Owner->GetFullName(), Mesh->GetFullName(), i, Tri->iVertex[0], Tri->iVertex[1], Tri->iVertex[2], Mesh->FrameVerts );
+				continue;
+			}
+			if( Tri->TextureIndex < 0 || Tri->TextureIndex >= Mesh->Textures.Num() || Tri->TextureIndex >= ARRAY_COUNT(TextureInfo) )
+			{
+				debugf( NAME_Warning, TEXT("UT99_ANDROID_V267_BAD_TRI_TEXTURE actor=%s mesh=%s tri=%i tex=%i textures=%i"),
+					Owner->GetFullName(), Mesh->GetFullName(), i, Tri->TextureIndex, Mesh->Textures.Num() );
+				continue;
+			}
+#endif
 			FTransform& V1  = Samples[Tri->iVertex[0]];
 			FTransform& V2  = Samples[Tri->iVertex[1]];
 			FTransform& V3  = Samples[Tri->iVertex[2]];
@@ -544,9 +799,17 @@ void URender::DrawMesh
 		for( INT i=0; i<Mesh->Textures.Num(); i++ )
 		{
 			Textures[i] = Mesh->GetTexture( i, Owner );
+#if PLATFORM_ANDROID
+			Textures[i] = AndroidValidateLodTexture( Owner, Textures[i], TEXT("DrawMesh.GetTexture") );
+#endif
 			if( Textures[i] )
 			{
 				Textures[i] = Textures[i]->Get( Frame->Viewport->CurrentTime );
+#if PLATFORM_ANDROID
+				Textures[i] = AndroidValidateLodTexture( Owner, Textures[i], TEXT("DrawMesh.AnimTexture") );
+				if( !Textures[i] )
+					continue;
+#endif
 				INT ThisLOD = -1;//Mesh->TextureLOD.Num() ? Clamp<INT>( appCeilLogTwo(1+appFloor(256.f/(Detail*Mesh->TextureLOD(i)*Textures[i]->USize))), 0, 3 ) : 0;
 				Textures[i]->Lock( TextureInfo[i], Frame->Viewport->CurrentTime, ThisLOD, Frame->Viewport->RenDev );
 				EnvironmentMap = Textures[i];
@@ -558,6 +821,11 @@ void URender::DrawMesh
 			EnvironmentMap = Owner->Region.Zone->EnvironmentMap;
 		else if( Owner->Level->EnvironmentMap )
 			EnvironmentMap = Owner->Level->EnvironmentMap;
+#if PLATFORM_ANDROID
+		EnvironmentMap = AndroidValidateLodTexture( Owner, EnvironmentMap, TEXT("DrawMesh.Environment") );
+		if( EnvironmentMap==NULL )
+			EnvironmentMap = AndroidMeshFallbackTexture( Frame, Owner, TEXT("DrawMesh.EnvironmentFallback") );
+#endif
 		if( EnvironmentMap==NULL )
 			return; //!!temporary work around for screwup
 		check(EnvironmentMap);
@@ -618,6 +886,10 @@ void URender::DrawMesh
 				// Get texture.
 				DWORD PolyFlags = Tri.PolyFlags | ExtraFlags;
 				INT Index = TriPool[i].Tri->TextureIndex;
+#if PLATFORM_ANDROID
+				if( Index < 0 || Index >= ARRAY_COUNT(TextureInfo) || Index >= Mesh->Textures.Num() )
+					continue;
+#endif
 				FTextureInfo& Info = (Textures[Index] && !(PolyFlags & PF_Environment)) ? TextureInfo[Index] : EnvironmentInfo;
 				UScale = Info.UScale * Info.USize / 256.0;
 				VScale = Info.VScale * Info.VSize / 256.0;

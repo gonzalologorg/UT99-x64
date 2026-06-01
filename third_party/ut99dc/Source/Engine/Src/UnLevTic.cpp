@@ -10,9 +10,14 @@
 #include "UnNet.h"
 
 #if defined(__ANDROID__)
+extern UBOOL GAndroidFrontendMenuRequested;
+
 static inline UBOOL IsAndroidLogoFrontendLevel( ULevel* Level )
 {
-	return Level && Level->GetOuter() && appStricmp( Level->GetOuter()->GetName(), TEXT("UT-Logo-Map") ) == 0;
+	return Level && Level->GetOuter()
+	&&
+	(	appStricmp( Level->GetOuter()->GetName(), TEXT("UT-Logo-Map") ) == 0
+	||	appStricmp( Level->GetOuter()->GetName(), TEXT("Entry") ) == 0 );
 }
 
 static inline UBOOL IsAndroidClassNamed( UObject* Object, const TCHAR* ClassName )
@@ -296,7 +301,8 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 			// Process PlayerTick with input.
 			PlayerPawn->Player->ReadInput( DeltaSeconds );
 #if defined(__ANDROID__)
-			if( IsAndroidLogoFrontendLevel( GetLevel() ) && !PlayerPawn->bShowMenu )
+			UBOOL AndroidSkipLogoPlayerScript = 0;
+			if( IsAndroidLogoFrontendLevel( GetLevel() ) && !GAndroidFrontendMenuRequested )
 			{
 				static UBOOL AndroidLoggedLogoTickSkip = 0;
 				if( !AndroidLoggedLogoTickSkip )
@@ -306,13 +312,18 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 						PlayerPawn->GetFullName(),
 						GetLevel()->GetOuter()->GetName() );
 				}
+				AndroidSkipLogoPlayerScript = 1;
 				PlayerPawn->Player->ReadInput( -1.0 );
-				return 1;
 			}
+			if( !AndroidSkipLogoPlayerScript )
+			{
 #endif
 			PlayerPawn->eventPlayerInput( DeltaSeconds );
 			PlayerPawn->eventPlayerTick( DeltaSeconds );
 			PlayerPawn->Player->ReadInput( -1.0 );
+#if defined(__ANDROID__)
+			}
+#endif
 
 			if( GetLevel()->DemoRecDriver && !GetLevel()->DemoRecDriver->ServerConnection )
 			{
@@ -328,7 +339,7 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 		if( TimerRate>0.0 && (TimerCounter+=DeltaSeconds)>=TimerRate )
 		{
 #if defined(__ANDROID__)
-			if( IsAndroidLogoFrontendLevel( GetLevel() ) && IsAndroidClassNamed( this, TEXT("CHNullHUD") ) )
+			if( IsAndroidLogoFrontendLevel( GetLevel() ) && !GAndroidFrontendMenuRequested && IsAndroidClassNamed( this, TEXT("CHNullHUD") ) )
 			{
 				static UBOOL AndroidLoggedLogoHudTimerSkip = 0;
 				if( !AndroidLoggedLogoHudTimerSkip )

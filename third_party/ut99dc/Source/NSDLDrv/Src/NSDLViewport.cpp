@@ -13,11 +13,11 @@ INT GAndroidSDLDrawableX = 0;
 INT GAndroidSDLDrawableY = 0;
 
 #ifndef UT99_ANDROID_MAX_RENDER_WIDTH
-#define UT99_ANDROID_MAX_RENDER_WIDTH 854
+#define UT99_ANDROID_MAX_RENDER_WIDTH 640
 #endif
 
 #ifndef UT99_ANDROID_MAX_RENDER_HEIGHT
-#define UT99_ANDROID_MAX_RENDER_HEIGHT 480
+#define UT99_ANDROID_MAX_RENDER_HEIGHT 384
 #endif
 
 static void AndroidChooseInternalRenderSize( INT OutputX, INT OutputY, INT& RenderX, INT& RenderY )
@@ -1072,8 +1072,27 @@ UBOOL UNSDLViewport::TickInput()
 				break;
 			case SDL_KEYDOWN:
 			case SDL_KEYUP:
-				CauseInputEvent( KeyMap[Ev.key.keysym.scancode], ( Ev.type == SDL_KEYDOWN ) ? IST_Press : IST_Release );
+			{
+				INT Key = KeyMap[Ev.key.keysym.scancode];
+#if PLATFORM_ANDROID
+				if( Ev.key.keysym.scancode == SDL_SCANCODE_ESCAPE || Ev.key.keysym.sym == SDLK_ESCAPE )
+				{
+					static INT AndroidEscapeEventLogs = 0;
+					if( AndroidEscapeEventLogs < 32 )
+					{
+						debugf( NAME_Log, TEXT("UT99_ANDROID_V270_SDL_ESCAPE_EVENT type=%i scancode=%i sym=%i mapped=%i"),
+							Ev.type,
+							Ev.key.keysym.scancode,
+							Ev.key.keysym.sym,
+							Key );
+						AndroidEscapeEventLogs++;
+					}
+					Key = IK_Escape;
+				}
+#endif
+				CauseInputEvent( Key, ( Ev.type == SDL_KEYDOWN ) ? IST_Press : IST_Release );
 				break;
+			}
 			case SDL_MOUSEBUTTONDOWN:
 			case SDL_MOUSEBUTTONUP:
 				CauseInputEvent( MouseButtonMap[Ev.button.button], ( Ev.type == SDL_MOUSEBUTTONDOWN ) ? IST_Press : IST_Release );

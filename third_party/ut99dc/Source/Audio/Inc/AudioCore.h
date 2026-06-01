@@ -42,6 +42,7 @@ UBOOL ExitAudioThread( AudioThread* Thread );
 UBOOL CreateAudioMutex( AudioMutex* Mutex );
 UBOOL DestroyAudioMutex( AudioMutex* Mutex );
 UBOOL AudioLock( AudioMutex* Mutex );
+UBOOL AudioTryLock( AudioMutex* Mutex );
 UBOOL AudioUnlock( AudioMutex* Mutex );
 
 /*------------------------------------------------------------------------------------

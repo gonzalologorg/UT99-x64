@@ -23,6 +23,27 @@ FLOAT Splerp( FLOAT F )
 	return (1.0/16.0)*S*S - (1.0/2.0)*S + 1;
 }
 
+#if PLATFORM_ANDROID
+static inline INT AndroidUnwrapRotComponent( INT Base, INT Value )
+{
+	while( Value - Base > 32768 )
+		Value -= 65536;
+	while( Value - Base < -32768 )
+		Value += 65536;
+	return Value;
+}
+
+static inline FRotator AndroidUnwrapRotatorNear( const FRotator& Base, const FRotator& Value )
+{
+	return FRotator
+	(
+		AndroidUnwrapRotComponent( Base.Pitch, Value.Pitch ),
+		AndroidUnwrapRotComponent( Base.Yaw,   Value.Yaw   ),
+		AndroidUnwrapRotComponent( Base.Roll,  Value.Roll  )
+	);
+}
+#endif
+
 //
 // Interpolating along a path.
 //
@@ -72,7 +93,15 @@ void AActor::physPathing( FLOAT DeltaTime )
 				FLOAT W3 = Splerp(PhysAlpha-2.0);
 				FLOAT RW = 1.0 / (W0 + W1 + W2 + W3);
 				NewLocation = (W0*Dest->Prev->Location + W1*Dest->Location + W2*Dest->Next->Location + W3*Dest->Next->Next->Location)*RW;
+#if PLATFORM_ANDROID
+				FRotator R1 = Dest->Rotation;
+				FRotator R0 = AndroidUnwrapRotatorNear( R1, Dest->Prev->Rotation );
+				FRotator R2 = AndroidUnwrapRotatorNear( R1, Dest->Next->Rotation );
+				FRotator R3 = AndroidUnwrapRotatorNear( R2, Dest->Next->Next->Rotation );
+				NewRotation = (W0*R0 + W1*R1 + W2*R2 + W3*R3)*RW;
+#else
 				NewRotation = (W0*Dest->Prev->Rotation + W1*Dest->Rotation + W2*Dest->Next->Rotation + W3*Dest->Next->Next->Rotation)*RW;
+#endif
 			}
 			else
 			{
@@ -80,8 +109,39 @@ void AActor::physPathing( FLOAT DeltaTime )
 				FLOAT W0 = 1.0 - PhysAlpha;
 				FLOAT W1 = PhysAlpha;
 				NewLocation = W0*Dest->Location + W1*Dest->Next->Location;
+#if PLATFORM_ANDROID
+				FRotator R0 = Dest->Rotation;
+				FRotator R1 = AndroidUnwrapRotatorNear( R0, Dest->Next->Rotation );
+				NewRotation = W0*R0 + W1*R1;
+#else
 				NewRotation = W0*Dest->Rotation + W1*Dest->Next->Rotation;
+#endif
 			}
+#if PLATFORM_ANDROID
+			static INT AndroidInterpRotLogs = 0;
+			if
+			(	AndroidInterpRotLogs < 32
+			&&	GetLevel()
+			&&	GetLevel()->GetOuter()
+			&&	appStricmp( GetLevel()->GetOuter()->GetName(), TEXT("CityIntro") ) == 0 )
+			{
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V257_INTERP_ROT actor=%s alpha=%f target=%s raw=%i,%i,%i next=%i,%i,%i new=%i,%i,%i physRate=%f"),
+					GetFullName(),
+					PhysAlpha,
+					Dest ? Dest->GetFullName() : TEXT("None"),
+					Dest ? Dest->Rotation.Pitch : 0,
+					Dest ? Dest->Rotation.Yaw : 0,
+					Dest ? Dest->Rotation.Roll : 0,
+					(Dest && Dest->Next) ? Dest->Next->Rotation.Pitch : 0,
+					(Dest && Dest->Next) ? Dest->Next->Rotation.Yaw : 0,
+					(Dest && Dest->Next) ? Dest->Next->Rotation.Roll : 0,
+					NewRotation.Pitch,
+					NewRotation.Yaw,
+					NewRotation.Roll,
+					PhysRate );
+				AndroidInterpRotLogs++;
+			}
+#endif
 			GetLevel()->MoveActor( this, NewLocation - Location, NewRotation, Hit );
 			if( IsA(APawn::StaticClass()) )
 				((APawn*)this)->ViewRotation = Rotation;

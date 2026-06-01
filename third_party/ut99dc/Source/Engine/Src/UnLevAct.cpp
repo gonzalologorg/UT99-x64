@@ -25,6 +25,123 @@ static INT AndroidTrailingNumber( const TCHAR* Name )
 	return appAtoi(Name+Start);
 }
 
+#if PLATFORM_ANDROID
+extern INT GAndroidInterpPositionScriptOffset;
+extern INT GAndroidInterpRateScriptOffset;
+extern INT GAndroidInterpGameSpeedScriptOffset;
+extern INT GAndroidInterpFovScriptOffset;
+extern INT GAndroidInterpScreenFlashScaleScriptOffset;
+extern INT GAndroidInterpScreenFlashFogScriptOffset;
+
+static UBOOL AndroidReadCompatBytes( AInterpolationPoint* Interp, INT Offset, void* Out, INT Size )
+{
+	if( !Interp || Offset==INDEX_NONE || Offset<0 || Size<=0 )
+		return 0;
+	UClass* Class = Interp->GetClass();
+	if( !Class || Offset+Size>Class->GetPropertiesSize() )
+		return 0;
+	appMemcpy( Out, ((BYTE*)Interp)+Offset, Size );
+	return 1;
+}
+
+static void AndroidRepairCityIntroInterpolationPoint( AInterpolationPoint* Interp )
+{
+	if( !Interp )
+		return;
+
+	INT CompatPosition = Interp->Position;
+	FLOAT CompatRate = Interp->RateModifier;
+	FLOAT CompatGameSpeed = Interp->GameSpeedModifier;
+	FLOAT CompatFov = Interp->FovModifier;
+	FLOAT CompatFlashScale = Interp->ScreenFlashScale;
+	FVector CompatFlashFog = Interp->ScreenFlashFog;
+	AndroidReadCompatBytes( Interp, GAndroidInterpPositionScriptOffset, &CompatPosition, sizeof(CompatPosition) );
+	AndroidReadCompatBytes( Interp, GAndroidInterpRateScriptOffset, &CompatRate, sizeof(CompatRate) );
+	AndroidReadCompatBytes( Interp, GAndroidInterpGameSpeedScriptOffset, &CompatGameSpeed, sizeof(CompatGameSpeed) );
+	AndroidReadCompatBytes( Interp, GAndroidInterpFovScriptOffset, &CompatFov, sizeof(CompatFov) );
+	AndroidReadCompatBytes( Interp, GAndroidInterpScreenFlashScaleScriptOffset, &CompatFlashScale, sizeof(CompatFlashScale) );
+	AndroidReadCompatBytes( Interp, GAndroidInterpScreenFlashFogScriptOffset, &CompatFlashFog, sizeof(CompatFlashFog) );
+
+	if( CompatPosition>=0 && CompatPosition<512 )
+		Interp->Position = CompatPosition;
+	if( CompatRate>0.0f && CompatRate<100.0f )
+		Interp->RateModifier = CompatRate;
+	if( CompatGameSpeed>0.0f && CompatGameSpeed<100.0f )
+		Interp->GameSpeedModifier = CompatGameSpeed;
+	if( CompatFov>0.0f && CompatFov<10.0f )
+		Interp->FovModifier = CompatFov;
+	if( CompatFlashScale>0.0f && CompatFlashScale<10.0f )
+		Interp->ScreenFlashScale = CompatFlashScale;
+	if( Abs(CompatFlashFog.X)<1000.0f && Abs(CompatFlashFog.Y)<1000.0f && Abs(CompatFlashFog.Z)<1000.0f )
+		Interp->ScreenFlashFog = CompatFlashFog;
+}
+
+static void AndroidRepairCityIntroInterpolationPaths( ULevel* Level )
+{
+	if( !Level || !Level->GetOuter() || appStricmp(Level->GetOuter()->GetName(),TEXT("CityIntro"))!=0 )
+		return;
+
+	INT RepairLogs = 0;
+	for( INT TraceIndex=0; TraceIndex<Level->Actors.Num(); TraceIndex++ )
+	{
+		AInterpolationPoint* Interp = Cast<AInterpolationPoint>( Level->Actors(TraceIndex) );
+		if( !Interp || Interp->Tag!=FName(TEXT("Path")) )
+			continue;
+		INT OldPosition = Interp->Position;
+		FLOAT OldRate = Interp->RateModifier;
+		FLOAT OldFov = Interp->FovModifier;
+		AndroidRepairCityIntroInterpolationPoint( Interp );
+		if( RepairLogs<96 )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V264_INTERP_REPAIR actor=%s suffix=%i pos=%i->%i rate=%f->%f fov=%f->%f"),
+				Interp->GetFullName(),
+				AndroidTrailingNumber( Interp->GetName() ),
+				OldPosition,
+				Interp->Position,
+				OldRate,
+				Interp->RateModifier,
+				OldFov,
+				Interp->FovModifier );
+			RepairLogs++;
+		}
+		Interp->Next = NULL;
+		Interp->Prev = NULL;
+	}
+
+	INT LinkLogs = 0;
+	for( INT LinkIndex=0; LinkIndex<Level->Actors.Num(); LinkIndex++ )
+	{
+		AInterpolationPoint* LinkPoint = Cast<AInterpolationPoint>( Level->Actors(LinkIndex) );
+		if( !LinkPoint || LinkPoint->Tag!=FName(TEXT("Path")) )
+			continue;
+		AInterpolationPoint* BestNext = NULL;
+		for( INT NextIndex=0; NextIndex<Level->Actors.Num(); NextIndex++ )
+		{
+			AInterpolationPoint* NextPoint = Cast<AInterpolationPoint>( Level->Actors(NextIndex) );
+			if( NextPoint && NextPoint!=LinkPoint && NextPoint->Tag==LinkPoint->Tag && NextPoint->Position==LinkPoint->Position+1 )
+			{
+				BestNext = NextPoint;
+				break;
+			}
+		}
+		if( BestNext )
+		{
+			LinkPoint->Next = BestNext;
+			BestNext->Prev = LinkPoint;
+			if( LinkLogs<96 )
+			{
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V264_INTERP_LINK actor=%s pos=%i next=%s nextPos=%i"),
+					LinkPoint->GetFullName(),
+					LinkPoint->Position,
+					BestNext->GetFullName(),
+					BestNext->Position );
+				LinkLogs++;
+			}
+		}
+	}
+}
+#endif
+
 /*-----------------------------------------------------------------------------
 	Level actor management.
 -----------------------------------------------------------------------------*/
@@ -590,6 +707,7 @@ APlayerPawn* ULevel::SpawnPlayActor( UPlayer* Player, ENetRole RemoteRole, const
 	// Tell UnrealScript to log in.
 	INT SavedActorCount = Actors.Num();//oldver: Login should say whether to accept inventory.
 #if PLATFORM_ANDROID
+	AndroidRepairCityIntroInterpolationPaths( this );
 	INT PlayerStartTraceCount = 0;
 	for( INT StartIndex=0; StartIndex<Actors.Num() && PlayerStartTraceCount<16; StartIndex++ )
 	{
@@ -612,10 +730,38 @@ APlayerPawn* ULevel::SpawnPlayActor( UPlayer* Player, ENetRole RemoteRole, const
 	}
 	debugf( NAME_Log, TEXT("UT99_ANDROID_V224_PLAYERSTART_COUNT count=%i totalActors=%i"), PlayerStartTraceCount, Actors.Num() );
 	INT InterpTraceCount = 0;
+	INT AndroidPathTraceCount = 0;
 	INT TriggerTraceCount = 0;
 	for( INT TraceIndex=0; TraceIndex<Actors.Num(); TraceIndex++ )
 	{
 		AInterpolationPoint* Interp = Cast<AInterpolationPoint>( Actors(TraceIndex) );
+		if( Interp && Interp->Tag==FName(TEXT("Path")) && AndroidPathTraceCount<128 )
+		{
+			const INT InterpSuffix = AndroidTrailingNumber( Interp->GetName() );
+			AInterpolationPoint* NextInterp = Cast<AInterpolationPoint>( Interp->Next );
+			AInterpolationPoint* PrevInterp = Cast<AInterpolationPoint>( Interp->Prev );
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V263_CITYINTRO_PATH_POINT index=%i actor=%s suffix=%i pos=%i tag=%s loc=%f,%f,%f rot=%i,%i,%i next=%s nextPos=%i prev=%s prevPos=%i end=%i skip=%i rate=%f fov=%f"),
+				TraceIndex,
+				Interp->GetFullName(),
+				InterpSuffix,
+				Interp->Position,
+				*Interp->Tag,
+				Interp->Location.X,
+				Interp->Location.Y,
+				Interp->Location.Z,
+				Interp->Rotation.Pitch,
+				Interp->Rotation.Yaw,
+				Interp->Rotation.Roll,
+				NextInterp ? NextInterp->GetFullName() : TEXT("None"),
+				NextInterp ? NextInterp->Position : -1,
+				PrevInterp ? PrevInterp->GetFullName() : TEXT("None"),
+				PrevInterp ? PrevInterp->Position : -1,
+				Interp->bEndOfPath,
+				Interp->bSkipNextPath,
+				Interp->RateModifier,
+				Interp->FovModifier );
+			AndroidPathTraceCount++;
+		}
 		if( Interp && InterpTraceCount<32 )
 		{
 			debugf( NAME_Log, TEXT("UT99_ANDROID_V231_INTERP_TRACE index=%i actor=%s tag=%s event=%s loc=%f,%f,%f rot=%i,%i,%i pos=%i rate=%f next=%p prev=%p end=%i skip=%i"),
@@ -870,6 +1016,7 @@ APlayerPawn* ULevel::SpawnPlayActor( UPlayer* Player, ENetRole RemoteRole, const
 		AInterpolationPoint* FirstInterp = NULL;
 		AInterpolationPoint* SecondInterp = NULL;
 		AInterpolationPoint* FirstCandidate = NULL;
+		INT BestFirstSuffix = -1;
 		for( INT TraceIndex=0; TraceIndex<Actors.Num(); TraceIndex++ )
 		{
 			AInterpolationPoint* Interp = Cast<AInterpolationPoint>( Actors(TraceIndex) );
@@ -899,11 +1046,29 @@ APlayerPawn* ULevel::SpawnPlayActor( UPlayer* Player, ENetRole RemoteRole, const
 					CandidateNext ? CandidateNext->Position : -1 );
 				if( CandidateNext )
 				{
-					FirstInterp = Interp;
-					SecondInterp = CandidateNext;
-					break;
+					const INT CandidateSuffix = AndroidTrailingNumber( Interp->GetName() );
+					if( CandidateSuffix > BestFirstSuffix )
+					{
+						FirstInterp = Interp;
+						SecondInterp = CandidateNext;
+						BestFirstSuffix = CandidateSuffix;
+					}
 				}
 			}
+		}
+		if( FirstInterp && SecondInterp )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V262_CITYINTRO_PATH_SELECTED first=%s suffix=%i second=%s tag=%s firstLoc=%f,%f,%f secondLoc=%f,%f,%f"),
+				FirstInterp->GetFullName(),
+				BestFirstSuffix,
+				SecondInterp->GetFullName(),
+				*FirstInterp->Tag,
+				FirstInterp->Location.X,
+				FirstInterp->Location.Y,
+				FirstInterp->Location.Z,
+				SecondInterp->Location.X,
+				SecondInterp->Location.Y,
+				SecondInterp->Location.Z );
 		}
 		if( !FirstInterp && FirstCandidate )
 		{
@@ -937,26 +1102,13 @@ APlayerPawn* ULevel::SpawnPlayActor( UPlayer* Player, ENetRole RemoteRole, const
 				AInterpolationPoint* LinkPoint = Cast<AInterpolationPoint>( Actors(LinkIndex) );
 				if( LinkPoint && LinkPoint->Tag==FirstInterp->Tag )
 				{
-					const INT LinkSuffix = AndroidTrailingNumber( LinkPoint->GetName() );
-					AInterpolationPoint* BestNext = NULL;
-					INT BestNextSuffix = 0x7fffffff;
-					for( INT NextIndex=0; NextIndex<Actors.Num(); NextIndex++ )
+					static UBOOL AndroidLoggedPreserveLinks = 0;
+					if( !AndroidLoggedPreserveLinks )
 					{
-						AInterpolationPoint* NextPoint = Cast<AInterpolationPoint>( Actors(NextIndex) );
-						if( NextPoint && NextPoint!=LinkPoint && NextPoint->Tag==FirstInterp->Tag )
-						{
-							const INT NextSuffix = AndroidTrailingNumber( NextPoint->GetName() );
-							if( NextSuffix>LinkSuffix && NextSuffix<BestNextSuffix )
-							{
-								BestNext = NextPoint;
-								BestNextSuffix = NextSuffix;
-							}
-						}
-					}
-					if( BestNext )
-					{
-						LinkPoint->Next = BestNext;
-						BestNext->Prev = LinkPoint;
+						AndroidLoggedPreserveLinks = 1;
+						debugf( NAME_Log, TEXT("UT99_ANDROID_V268_CITYINTRO_KEEP_POSITION_LINKS first=%s firstNext=%s"),
+							FirstInterp->GetFullName(),
+							FirstInterp->Next ? FirstInterp->Next->GetFullName() : TEXT("None") );
 					}
 					if( LinkPoint->RateModifier<=0.0f )
 						LinkPoint->RateModifier = 1.0f;
@@ -985,6 +1137,14 @@ APlayerPawn* ULevel::SpawnPlayActor( UPlayer* Player, ENetRole RemoteRole, const
 		}
 		if( FirstInterp && FirstInterp->Next )
 		{
+			if( FirstInterp->Prev )
+			{
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V259_CITYINTRO_CLEAR_FIRST_PREV first=%s oldPrev=%s next=%s"),
+					FirstInterp->GetFullName(),
+					FirstInterp->Prev->GetFullName(),
+					FirstInterp->Next ? FirstInterp->Next->GetFullName() : TEXT("None") );
+				FirstInterp->Prev = NULL;
+			}
 			Actor->SetCollision( 1, 0, 0 );
 			Actor->bCollideWorld = 0;
 			Actor->Target = FirstInterp;

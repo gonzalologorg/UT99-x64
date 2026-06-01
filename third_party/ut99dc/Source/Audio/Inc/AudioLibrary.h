@@ -13,6 +13,7 @@ Revision history:
 #define CheckAudioLib(f)	if( !AudioInitialized ) return f;
 
 #define ALock				AudioLock(&Mutex);
+#define ATryLock			AudioTryLock(&Mutex)
 #define AUnlock				AudioUnlock(&Mutex);
 
 /*------------------------------------------------------------------------------------

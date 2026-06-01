@@ -29,30 +29,45 @@ static UBOOL IsKnownAudioActorPointer( AActor* Actor )
 {
 	if( !Actor )
 		return 0;
+#if PLATFORM_ANDROID
+	QWORD Addr = (QWORD)Actor;
+	return Addr != (QWORD)-1 && (Addr & 0x7)==0;
+#else
 	for( TObjectIterator<AActor> It; It; ++It )
 		if( *It==Actor )
 			return 1;
 	return 0;
+#endif
 }
 
 static UBOOL IsKnownAudioSoundPointer( USound* Sound )
 {
 	if( !Sound )
 		return 0;
+#if PLATFORM_ANDROID
+	QWORD Addr = (QWORD)Sound;
+	return Addr != (QWORD)-1 && (Addr & 0x7)==0;
+#else
 	for( TObjectIterator<USound> It; It; ++It )
 		if( *It==Sound )
 			return 1;
 	return 0;
+#endif
 }
 
 static UBOOL IsKnownAudioLevelPointer( ULevel* Level )
 {
 	if( !Level )
 		return 0;
+#if PLATFORM_ANDROID
+	QWORD Addr = (QWORD)Level;
+	return Addr != (QWORD)-1 && (Addr & 0x7)==0;
+#else
 	for( TObjectIterator<ULevel> It; It; ++It )
 		if( *It==Level )
 			return 1;
 	return 0;
+#endif
 }
 
 FLOAT UGenericAudioSubsystem::SoundPriority( UViewport* InViewport, FVector Location, FLOAT Volume, FLOAT Radius )
@@ -593,7 +608,20 @@ void UGenericAudioSubsystem::Update( FPointRegion Region, FCoords& Coords )
 #endif
 	
 	// Lock to sync sound.
+#if PLATFORM_ANDROID
+	if( !ATryLock )
+	{
+		static INT AndroidAudioTryLockSkips = 0;
+#if UT99_ANDROID_AUDIO_FRAME_TRACE
+		if( AndroidAudioTryLockSkips < 16 || (AndroidAudioTryLockSkips % 120) == 0 )
+			debugf( NAME_Init, TEXT("UT99_ANDROID_V254_AUDIO_UPDATE_TRYLOCK_SKIP count=%i"), AndroidAudioTryLockSkips );
+#endif
+		AndroidAudioTryLockSkips++;
+		return;
+	}
+#else
 	ALock;
+#endif
 	
 	// Time passes...
 	DOUBLE DeltaTime = appSeconds() - LastTime;

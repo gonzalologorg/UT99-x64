@@ -92,10 +92,13 @@ static void push_android_button_event(int keyCode, bool down) {
         SDL_Event event;
         SDL_memset(&event, 0, sizeof(event));
         event.type = down ? SDL_KEYDOWN : SDL_KEYUP;
+        SDL_Window* focus = SDL_GetKeyboardFocus();
+        event.key.windowID = focus ? SDL_GetWindowID(focus) : 0;
         event.key.state = down ? SDL_PRESSED : SDL_RELEASED;
         event.key.repeat = 0;
         event.key.keysym.scancode = scancode;
         event.key.keysym.sym = SDL_GetKeyFromScancode(scancode);
+        event.key.keysym.mod = KMOD_NONE;
         SDL_PushEvent(&event);
     }
 
@@ -286,6 +289,16 @@ Java_com_ast_ut99_GameActivity_nativeAndroidButtonV47(
              logCount);
     }
     ++logCount;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_ast_ut99_GameActivity_nativeAndroidIsMenuV92(
+        JNIEnv*,
+        jclass) {
+    // The standalone bridge library cannot safely inspect Unreal's UWindow state.
+    // Returning false keeps the Java touch overlay from throwing UnsatisfiedLinkError;
+    // native input/menu handling remains inside libUnrealTournament.
+    return JNI_FALSE;
 }
 
 extern "C" JNIEXPORT void JNICALL

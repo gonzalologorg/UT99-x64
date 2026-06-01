@@ -46,6 +46,27 @@ void URender::DrawLodMesh
 	ExtraFlags |= PF_Flat; /* LOD doesn't support curved surfaces (yet) */
 
 	ULodMesh*  Mesh = (ULodMesh*)Owner->Mesh;
+#if PLATFORM_ANDROID
+	static INT AndroidLodEntryLogs = 0;
+	if( AndroidLodEntryLogs < 64 )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V266_LOD_ENTRY actor=%s mesh=%p meshName=%s drawScale=%f skin=%p texture=%p zone=%p"),
+			Owner ? Owner->GetFullName() : TEXT("None"),
+			Mesh,
+			(Mesh && AndroidKnownObject(Mesh, ULodMesh::StaticClass())) ? Mesh->GetFullName() : TEXT("Invalid"),
+			Owner ? Owner->DrawScale : 0.0f,
+			Owner ? Owner->Skin : NULL,
+			Owner ? Owner->Texture : NULL,
+			Owner ? Owner->Region.Zone : NULL );
+		AndroidLodEntryLogs++;
+	}
+	if( !AndroidValidateLodMesh( Owner, Mesh, TEXT("DrawLodMesh") ) )
+	{
+		STAT(unclock(GStat.MeshTime));
+		Mark.Pop();
+		return;
+	}
+#endif
 	FVector Hack = FVector(0,-8,0);
 	UBOOL SoftwareRendering =  Frame->Viewport->RenDev->SpanBased;
 	UBOOL NotWeaponHeuristic= (Owner->Owner!=Frame->Viewport->Actor);
@@ -185,10 +206,25 @@ void URender::DrawLodMesh
 
 	// Special coordinates setup.
 	HasSpecialCoords = 0;
-	if ( WeaponOutcode == 0 ) // ( Mesh->SpecialFaces.Num() )
+	if ( WeaponOutcode == 0 && Mesh->SpecialFaces.Num()>0 ) // ( Mesh->SpecialFaces.Num() )
 	{
 		// Only the first SpecialFace is used - for now.
 		FMeshFace& Face = Mesh->SpecialFaces(0);  
+#if PLATFORM_ANDROID
+		const INT SampleCount = VertexSubset + Mesh->SpecialVerts;
+		if( Face.iWedge[0] < 0 || Face.iWedge[0] >= SampleCount || Face.iWedge[1] < 0 || Face.iWedge[1] >= SampleCount || Face.iWedge[2] < 0 || Face.iWedge[2] >= SampleCount )
+		{
+			debugf( NAME_Warning, TEXT("UT99_ANDROID_V265_BAD_SPECIAL_FACE actor=%s mesh=%s wedges=%i,%i,%i sampleCount=%i"),
+				Owner->GetFullName(),
+				Mesh->GetFullName(),
+				Face.iWedge[0],
+				Face.iWedge[1],
+				Face.iWedge[2],
+				SampleCount );
+		}
+		else
+#endif
+		{
 		FTransform& V0  = AllSamples[Face.iWedge[0]];
 		FTransform& V1  = AllSamples[Face.iWedge[1]];
 		FTransform& V2  = AllSamples[Face.iWedge[2]];
@@ -205,6 +241,7 @@ void URender::DrawLodMesh
 			FVector Mid   = 0.5*(V0.Point + V2.Point);
 			SpecialCoords = GMath.UnitCoords * Mid * C;
 			HasSpecialCoords = 1;
+		}
 		}
 	}
 
@@ -384,6 +421,20 @@ void URender::DrawLodMesh
 				if( Mesh->FaceLevel(i) <= VertexSubset ) 
 				{	
 					FMeshFace& Face = Mesh->Faces(i);
+#if PLATFORM_ANDROID
+					if( Face.MaterialIndex < 0 || Face.MaterialIndex >= Mesh->Materials.Num() )
+					{
+						debugf( NAME_Warning, TEXT("UT99_ANDROID_V265_BAD_FACE_MATERIAL actor=%s mesh=%s face=%i mat=%i mats=%i"),
+							Owner->GetFullName(), Mesh->GetFullName(), i, Face.MaterialIndex, Mesh->Materials.Num() );
+						continue;
+					}
+					if( Face.iWedge[0] < 0 || Face.iWedge[0] >= Mesh->Wedges.Num() || Face.iWedge[1] < 0 || Face.iWedge[1] >= Mesh->Wedges.Num() || Face.iWedge[2] < 0 || Face.iWedge[2] >= Mesh->Wedges.Num() )
+					{
+						debugf( NAME_Warning, TEXT("UT99_ANDROID_V265_BAD_FACE_WEDGE actor=%s mesh=%s face=%i wedges=%i,%i,%i wedgeNum=%i"),
+							Owner->GetFullName(), Mesh->GetFullName(), i, Face.iWedge[0], Face.iWedge[1], Face.iWedge[2], Mesh->Wedges.Num() );
+						continue;
+					}
+#endif
 					// Faces sorted by materials so don't often change.
 					if( MatIndex != Face.MaterialIndex )
 					{
@@ -408,7 +459,25 @@ void URender::DrawLodMesh
 
 							while( Wedge.iVertex >= VertexSubset )
 							{							
+#if PLATFORM_ANDROID
+								if( iWedge < 0 || iWedge >= Mesh->CollapseWedgeThus.Num() )
+								{
+									debugf( NAME_Warning, TEXT("UT99_ANDROID_V265_BAD_COLLAPSE_WEDGE actor=%s mesh=%s face=%i wedge=%i collapseNum=%i"),
+										Owner->GetFullName(), Mesh->GetFullName(), i, iWedge, Mesh->CollapseWedgeThus.Num() );
+									Wedge.iVertex = 0;
+									break;
+								}
+#endif
 								iWedge = Mesh->CollapseWedgeThus( iWedge );
+#if PLATFORM_ANDROID
+								if( iWedge < 0 || iWedge >= Mesh->Wedges.Num() )
+								{
+									debugf( NAME_Warning, TEXT("UT99_ANDROID_V265_BAD_COLLAPSE_RESULT actor=%s mesh=%s face=%i wedge=%i wedgeNum=%i"),
+										Owner->GetFullName(), Mesh->GetFullName(), i, iWedge, Mesh->Wedges.Num() );
+									iWedge = 0;
+									break;
+								}
+#endif
 								Wedge  = Mesh->Wedges(iWedge);						
 							};
 							
@@ -419,6 +488,10 @@ void URender::DrawLodMesh
 								if( *(DWORD*)&Alpha != 0 ) 
 								{
 									INT iNext = Mesh->CollapseWedgeThus( iWedge );
+#if PLATFORM_ANDROID
+									if( iNext < 0 || iNext >= Mesh->Wedges.Num() )
+										iNext = iWedge;
+#endif
 									// Actually a different wedge ?
 									if (iWedge != iNext)
 									{
@@ -440,6 +513,14 @@ void URender::DrawLodMesh
 							Wedge = WedgePool(iStartWedge);
 						}
 						V[w] = &Samples[Wedge.iVertex];
+#if PLATFORM_ANDROID
+						if( Wedge.iVertex < 0 || Wedge.iVertex >= VertexSubset )
+						{
+							debugf( NAME_Warning, TEXT("UT99_ANDROID_V265_BAD_WEDGE_VERTEX actor=%s mesh=%s face=%i vertex=%i subset=%i"),
+								Owner->GetFullName(), Mesh->GetFullName(), i, Wedge.iVertex, VertexSubset );
+							V[w] = &Samples[0];
+						}
+#endif
 
 					}				
 					
@@ -486,6 +567,12 @@ void URender::DrawLodMesh
 			for( INT i=0; i<Mesh->Faces.Num(); i++) 
 			{
 				FMeshFace& Face = Mesh->Faces(i);
+#if PLATFORM_ANDROID
+				if( Face.MaterialIndex < 0 || Face.MaterialIndex >= Mesh->Materials.Num() )
+					continue;
+				if( Face.iWedge[0] < 0 || Face.iWedge[0] >= Mesh->Wedges.Num() || Face.iWedge[1] < 0 || Face.iWedge[1] >= Mesh->Wedges.Num() || Face.iWedge[2] < 0 || Face.iWedge[2] >= Mesh->Wedges.Num() )
+					continue;
+#endif
 				// Faces sorted by materials so don't often change.
 				if( MatIndex != Face.MaterialIndex )
 				{
@@ -500,6 +587,10 @@ void URender::DrawLodMesh
 				FMeshWedge Wedge0 = Mesh->Wedges(iStartWedge0); 
 				FMeshWedge Wedge1 = Mesh->Wedges(iStartWedge1); 
 				FMeshWedge Wedge2 = Mesh->Wedges(iStartWedge2); 
+#if PLATFORM_ANDROID
+				if( Wedge0.iVertex < 0 || Wedge0.iVertex >= VertexSubset || Wedge1.iVertex < 0 || Wedge1.iVertex >= VertexSubset || Wedge2.iVertex < 0 || Wedge2.iVertex >= VertexSubset )
+					continue;
+#endif
 				WedgePool(iStartWedge0) = Wedge0;
 				WedgePool(iStartWedge1) = Wedge1; 
 				WedgePool(iStartWedge2) = Wedge2;
@@ -571,9 +662,17 @@ void URender::DrawLodMesh
 		for( INT i=0; i<Mesh->Textures.Num(); i++ )
 		{
 			Textures[i] = Mesh->GetTexture( i, Owner );
+#if PLATFORM_ANDROID
+			Textures[i] = AndroidValidateLodTexture( Owner, Textures[i], TEXT("DrawLodMesh.GetTexture") );
+#endif
 			if( Textures[i] )
 			{
 				Textures[i] = Textures[i]->Get( Frame->Viewport->CurrentTime );
+#if PLATFORM_ANDROID
+				Textures[i] = AndroidValidateLodTexture( Owner, Textures[i], TEXT("DrawLodMesh.AnimTexture") );
+				if( !Textures[i] )
+					continue;
+#endif
 				INT ThisLOD = -1;//Mesh->TextureLOD.Num() ? Clamp<INT>( appCeilLogTwo(1+appFloor(256.f/(Detail*Mesh->TextureLOD(i)*Textures[i]->USize))), 0, 3 ) : 0;
 				Textures[i]->Lock( TextureInfo[i], Frame->Viewport->CurrentTime, ThisLOD, Frame->Viewport->RenDev );
 				EnvironmentMap = Textures[i];								
@@ -585,6 +684,11 @@ void URender::DrawLodMesh
 			EnvironmentMap = Owner->Region.Zone->EnvironmentMap;
 		else if( Owner->Level->EnvironmentMap )
 			EnvironmentMap = Owner->Level->EnvironmentMap;
+#if PLATFORM_ANDROID
+		EnvironmentMap = AndroidValidateLodTexture( Owner, EnvironmentMap, TEXT("DrawLodMesh.Environment") );
+		if( EnvironmentMap==NULL )
+			EnvironmentMap = AndroidMeshFallbackTexture( Frame, Owner, TEXT("DrawLodMesh.EnvironmentFallback") );
+#endif
 		if( EnvironmentMap==NULL )
 			return;
 		check(EnvironmentMap);
@@ -642,9 +746,21 @@ void URender::DrawLodMesh
 			// Update material if changed since last face.
 			if ( MatIndex != Face.MaterialIndex )
 			{
+#if PLATFORM_ANDROID
+				if( Face.MaterialIndex < 0 || Face.MaterialIndex >= Mesh->Materials.Num() )
+					continue;
+#endif
 				MatIndex = Face.MaterialIndex;
 				MatFlags = ExtraFlags | Mesh->Materials( MatIndex ).PolyFlags;
 				INT TexIndex =          Mesh->Materials( MatIndex ).TextureIndex;
+#if PLATFORM_ANDROID
+				if( TexIndex < 0 || TexIndex >= Mesh->Textures.Num() || TexIndex >= ARRAY_COUNT(TextureInfo) )
+				{
+					debugf( NAME_Warning, TEXT("UT99_ANDROID_V265_BAD_TEXTURE_INDEX actor=%s mesh=%s mat=%i tex=%i textures=%i"),
+						Owner->GetFullName(), Mesh->GetFullName(), MatIndex, TexIndex, Mesh->Textures.Num() );
+					continue;
+				}
+#endif
 				Info = ( Textures[TexIndex] && !(MatFlags & PF_Environment)) ? &TextureInfo[TexIndex] : &EnvironmentInfo;
 				UScale = Info->UScale * Info->USize/256.0f;
 				VScale = Info->VScale * Info->VSize/256.0f;
@@ -653,9 +769,17 @@ void URender::DrawLodMesh
 			// Set up texture coords.
 			FTransTexture* Pts[6];
 			// Vertex 0,1,2 unrolled assignment.
+#if PLATFORM_ANDROID
+			if( Face.iWedge[0] < 0 || Face.iWedge[0] >= WedgePool.Num() || Face.iWedge[1] < 0 || Face.iWedge[1] >= WedgePool.Num() || Face.iWedge[2] < 0 || Face.iWedge[2] >= WedgePool.Num() )
+				continue;
+#endif
 			FMeshWedge Wedge0 = WedgePool( Face.iWedge[0] );
 			FMeshWedge Wedge1 = WedgePool( Face.iWedge[1] );
 			FMeshWedge Wedge2 = WedgePool( Face.iWedge[2] );
+#if PLATFORM_ANDROID
+			if( Wedge0.iVertex < 0 || Wedge0.iVertex >= VertexSubset || Wedge1.iVertex < 0 || Wedge1.iVertex >= VertexSubset || Wedge2.iVertex < 0 || Wedge2.iVertex >= VertexSubset )
+				continue;
+#endif
 			Pts[0]    = &Samples[ Wedge0.iVertex ];
 			Pts[1]    = &Samples[ Wedge1.iVertex ];
 			Pts[2]    = &Samples[ Wedge2.iVertex ];

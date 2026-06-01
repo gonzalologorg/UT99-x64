@@ -14,6 +14,13 @@
 #ifndef UT99_ANDROID_FRAME_TRACE
 #define UT99_ANDROID_FRAME_TRACE 0
 #endif
+UBOOL GAndroidFrontendMenuRequested = 0;
+INT GAndroidInterpPositionScriptOffset = INDEX_NONE;
+INT GAndroidInterpRateScriptOffset = INDEX_NONE;
+INT GAndroidInterpGameSpeedScriptOffset = INDEX_NONE;
+INT GAndroidInterpFovScriptOffset = INDEX_NONE;
+INT GAndroidInterpScreenFlashScaleScriptOffset = INDEX_NONE;
+INT GAndroidInterpScreenFlashFogScriptOffset = INDEX_NONE;
 #endif
 
 /*-----------------------------------------------------------------------------
@@ -644,6 +651,33 @@ static void FixupPawnOffsets()
 static void FixupNavigationPointOffsets()
 {
 	guard(FixupNavigationPointOffsets);
+#if PLATFORM_ANDROID
+	UProperty* AndroidInterpPosition = FindNativeProperty( AInterpolationPoint::StaticClass(), TEXT("Position") );
+	UProperty* AndroidInterpRate = FindNativeProperty( AInterpolationPoint::StaticClass(), TEXT("RateModifier") );
+	UProperty* AndroidInterpGameSpeed = FindNativeProperty( AInterpolationPoint::StaticClass(), TEXT("GameSpeedModifier") );
+	UProperty* AndroidInterpFov = FindNativeProperty( AInterpolationPoint::StaticClass(), TEXT("FovModifier") );
+	UProperty* AndroidInterpScreenFlashScale = FindNativeProperty( AInterpolationPoint::StaticClass(), TEXT("ScreenFlashScale") );
+	UProperty* AndroidInterpScreenFlashFog = FindNativeProperty( AInterpolationPoint::StaticClass(), TEXT("ScreenFlashFog") );
+	GAndroidInterpPositionScriptOffset = AndroidInterpPosition ? AndroidInterpPosition->Offset : INDEX_NONE;
+	GAndroidInterpRateScriptOffset = AndroidInterpRate ? AndroidInterpRate->Offset : INDEX_NONE;
+	GAndroidInterpGameSpeedScriptOffset = AndroidInterpGameSpeed ? AndroidInterpGameSpeed->Offset : INDEX_NONE;
+	GAndroidInterpFovScriptOffset = AndroidInterpFov ? AndroidInterpFov->Offset : INDEX_NONE;
+	GAndroidInterpScreenFlashScaleScriptOffset = AndroidInterpScreenFlashScale ? AndroidInterpScreenFlashScale->Offset : INDEX_NONE;
+	GAndroidInterpScreenFlashFogScriptOffset = AndroidInterpScreenFlashFog ? AndroidInterpScreenFlashFog->Offset : INDEX_NONE;
+	debugf( NAME_Log, TEXT("UT99_ANDROID_V264_INTERP_SCRIPT_OFFSETS pos=%i rate=%i game=%i fov=%i flashScale=%i flashFog=%i nativePos=%i nativeRate=%i nativeGame=%i nativeFov=%i nativeFlashScale=%i nativeFlashFog=%i"),
+		GAndroidInterpPositionScriptOffset,
+		GAndroidInterpRateScriptOffset,
+		GAndroidInterpGameSpeedScriptOffset,
+		GAndroidInterpFovScriptOffset,
+		GAndroidInterpScreenFlashScaleScriptOffset,
+		GAndroidInterpScreenFlashFogScriptOffset,
+		STRUCT_OFFSET(AInterpolationPoint,Position),
+		STRUCT_OFFSET(AInterpolationPoint,RateModifier),
+		STRUCT_OFFSET(AInterpolationPoint,GameSpeedModifier),
+		STRUCT_OFFSET(AInterpolationPoint,FovModifier),
+		STRUCT_OFFSET(AInterpolationPoint,ScreenFlashScale),
+		STRUCT_OFFSET(AInterpolationPoint,ScreenFlashFog) );
+#endif
 	FixupNativePropertyOffset( AInterpolationPoint::StaticClass(), TEXT("Position"), STRUCT_OFFSET(AInterpolationPoint,Position) );
 	FixupNativePropertyOffset( AInterpolationPoint::StaticClass(), TEXT("RateModifier"), STRUCT_OFFSET(AInterpolationPoint,RateModifier) );
 	FixupNativePropertyOffset( AInterpolationPoint::StaticClass(), TEXT("GameSpeedModifier"), STRUCT_OFFSET(AInterpolationPoint,GameSpeedModifier) );
@@ -2175,6 +2209,37 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 	FVector      ViewLocation = ViewActor->Location;
 	FRotator     ViewRotation = ViewActor->Rotation;
 	static INT AndroidCalcViewTraceCount = 0;
+	UBOOL AndroidCityIntroCameraTrace = 0;
+#if PLATFORM_ANDROID
+	if
+	(	GLevel
+	&&	GLevel->GetOuter()
+	&&	appStricmp( GLevel->GetOuter()->GetName(), TEXT("CityIntro") ) == 0
+	&&	AndroidCalcViewTraceCount < 64 )
+	{
+		AndroidCityIntroCameraTrace = 1;
+		APawn* AndroidPawn = Cast<APawn>(Viewport->Actor);
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V258_CALCVIEW_BEFORE count=%i actor=%s loc=%f,%f,%f rot=%i,%i,%i viewrot=%i,%i,%i physics=%i target=%s targetRot=%i,%i,%i alpha=%f rate=%f"),
+			AndroidCalcViewTraceCount,
+			Viewport->Actor ? Viewport->Actor->GetFullName() : TEXT("None"),
+			ViewLocation.X,
+			ViewLocation.Y,
+			ViewLocation.Z,
+			ViewRotation.Pitch,
+			ViewRotation.Yaw,
+			ViewRotation.Roll,
+			AndroidPawn ? AndroidPawn->ViewRotation.Pitch : 0,
+			AndroidPawn ? AndroidPawn->ViewRotation.Yaw : 0,
+			AndroidPawn ? AndroidPawn->ViewRotation.Roll : 0,
+			Viewport->Actor ? Viewport->Actor->Physics : 0,
+			(Viewport->Actor && Viewport->Actor->Target) ? Viewport->Actor->Target->GetFullName() : TEXT("None"),
+			(Viewport->Actor && Viewport->Actor->Target) ? Viewport->Actor->Target->Rotation.Pitch : 0,
+			(Viewport->Actor && Viewport->Actor->Target) ? Viewport->Actor->Target->Rotation.Yaw : 0,
+			(Viewport->Actor && Viewport->Actor->Target) ? Viewport->Actor->Target->Rotation.Roll : 0,
+			Viewport->Actor ? Viewport->Actor->PhysAlpha : 0.0f,
+			Viewport->Actor ? Viewport->Actor->PhysRate : 0.0f );
+	}
+#endif
 #if PLATFORM_ANDROID && UT99_ANDROID_FRAME_TRACE
 	if( AndroidCalcViewTraceCount < 24 || (AndroidCalcViewTraceCount % 120) == 0 )
 		debugf( NAME_Log, TEXT("UT99_ANDROID_V221_CALCVIEW_BEFORE count=%i actor=%s loc=%f,%f,%f rot=%i,%i,%i viewTarget=%p"),
@@ -2189,6 +2254,29 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 			Viewport->Actor ? Viewport->Actor->ViewTarget : NULL );
 #endif
 	Viewport->Actor->eventPlayerCalcView( ViewActor, ViewLocation, ViewRotation );
+#if PLATFORM_ANDROID
+	if( AndroidCityIntroCameraTrace )
+	{
+		APawn* AndroidPawn = Cast<APawn>(Viewport->Actor);
+		FVector AndroidDir = ViewRotation.Vector();
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V258_CALCVIEW_AFTER count=%i viewActor=%s loc=%f,%f,%f rot=%i,%i,%i viewrot=%i,%i,%i dir=%f,%f,%f behind=%i"),
+			AndroidCalcViewTraceCount,
+			ViewActor ? ViewActor->GetFullName() : TEXT("None"),
+			ViewLocation.X,
+			ViewLocation.Y,
+			ViewLocation.Z,
+			ViewRotation.Pitch,
+			ViewRotation.Yaw,
+			ViewRotation.Roll,
+			AndroidPawn ? AndroidPawn->ViewRotation.Pitch : 0,
+			AndroidPawn ? AndroidPawn->ViewRotation.Yaw : 0,
+			AndroidPawn ? AndroidPawn->ViewRotation.Roll : 0,
+			AndroidDir.X,
+			AndroidDir.Y,
+			AndroidDir.Z,
+			Viewport->Actor ? Viewport->Actor->bBehindView : 0 );
+	}
+#endif
 #if PLATFORM_ANDROID && UT99_ANDROID_FRAME_TRACE
 	if( AndroidCalcViewTraceCount < 24 || (AndroidCalcViewTraceCount % 120) == 0 )
 		debugf( NAME_Log, TEXT("UT99_ANDROID_V221_CALCVIEW_AFTER count=%i viewActor=%s loc=%f,%f,%f rot=%i,%i,%i"),
@@ -2396,7 +2484,7 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 					Viewport->Actor->myHUD->MainMenu,
 					Viewport->Actor->bShowMenu ? 1 : 0 );
 			}
-			if( AndroidHudClassName && appStricmp( AndroidHudClassName, TEXT("CHNullHUD") ) == 0 && !Viewport->Actor->bShowMenu )
+			if( AndroidHudClassName && appStricmp( AndroidHudClassName, TEXT("CHNullHUD") ) == 0 && !GAndroidFrontendMenuRequested )
 			{
 				static UBOOL AndroidLoggedSkipNullHudPostRender = 0;
 				AndroidSkipNullHudPostRender = 1;
@@ -2420,8 +2508,9 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 		(	Viewport->Actor
 		&&	Viewport->Actor->GetLevel()
 		&&	Viewport->Actor->GetLevel()->GetOuter()
-		&&	appStricmp( Viewport->Actor->GetLevel()->GetOuter()->GetName(), TEXT("UT-Logo-Map") ) == 0
-		&&	!Viewport->Actor->bShowMenu )
+		&&	( appStricmp( Viewport->Actor->GetLevel()->GetOuter()->GetName(), TEXT("UT-Logo-Map") ) == 0
+			|| appStricmp( Viewport->Actor->GetLevel()->GetOuter()->GetName(), TEXT("Entry") ) == 0 )
+		&&	!GAndroidFrontendMenuRequested )
 		{
 			static UBOOL AndroidLoggedSkipLogoConsolePostRender = 0;
 			AndroidSkipLogoConsolePostRender = 1;
@@ -2429,6 +2518,23 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 			{
 				AndroidLoggedSkipLogoConsolePostRender = 1;
 				debugf( NAME_Log, TEXT("UT99_ANDROID_V252_SKIP_LOGO_CONSOLE_POSTRENDER actor=%s"),
+					Viewport->Actor->GetFullName() );
+			}
+		}
+		if
+		(	Viewport->Actor
+		&&	Viewport->Actor->GetLevel()
+		&&	Viewport->Actor->GetLevel()->GetOuter()
+		&&	appStricmp( Viewport->Actor->GetLevel()->GetOuter()->GetName(), TEXT("CityIntro") ) == 0
+		&&	Viewport->Actor->Physics == PHYS_Interpolating
+		&&	!GAndroidFrontendMenuRequested )
+		{
+			static UBOOL AndroidLoggedSkipCityIntroConsolePostRender = 0;
+			AndroidSkipLogoConsolePostRender = 1;
+			if( !AndroidLoggedSkipCityIntroConsolePostRender )
+			{
+				AndroidLoggedSkipCityIntroConsolePostRender = 1;
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V260_SKIP_CITYINTRO_CONSOLE_POSTRENDER actor=%s"),
 					Viewport->Actor->GetFullName() );
 			}
 		}
