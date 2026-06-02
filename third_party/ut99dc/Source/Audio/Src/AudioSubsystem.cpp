@@ -150,6 +150,13 @@ void UGenericAudioSubsystem::PostEditChange()
 	Channels 		= Clamp<INT>(Channels,0,MAX_EFFECTS_CHANNELS);
 	DopplerSpeed    = Clamp(DopplerSpeed,1.f,100000.f);
 	AmbientFactor   = Clamp(AmbientFactor,0.f,10.f);
+#if PLATFORM_ANDROID
+	if( AmbientFactor <= 0.f )
+	{
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V293_AUDIO_AMBIENT_FACTOR_FIX old=%f"), AmbientFactor );
+		AmbientFactor = 1.f;
+	}
+#endif
 	SetVolumes();
 
 	unguard;
@@ -221,6 +228,11 @@ UBOOL UGenericAudioSubsystem::Init()
 #if defined(HAVE_LIBXMP)
 		UseDigitalMusic = 1;
 #endif
+	}
+	if( AmbientFactor <= 0.f )
+	{
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V293_AUDIO_AMBIENT_FACTOR_FIX old=%f"), AmbientFactor );
+		AmbientFactor = 1.f;
 	}
 #endif
 
@@ -365,6 +377,19 @@ void UGenericAudioSubsystem::RegisterSound( USound* Sound )
 		Sound->Handle = LoadSample( &SoundChunk, Sound->GetFullName() );
 		if( !Sound->Handle )
 			appErrorf( TEXT("Invalid sound format in %s"), Sound->GetFullName() );
+#if PLATFORM_ANDROID
+		Sample* LoadedSample = (Sample*)Sound->Handle;
+		if( LoadedSample && LoadedSample->SamplesPerSec <= 0 )
+		{
+			debugf( NAME_Init, TEXT("UT99_ANDROID_V294_AUDIO_SAMPLE_RATE_FIX stage=register sound=%s oldRate=%i audioRate=%i length=%i type=0x%04x"),
+				Sound->GetFullName(),
+				LoadedSample->SamplesPerSec,
+				AudioRate,
+				LoadedSample->Length,
+				LoadedSample->Type );
+			LoadedSample->SamplesPerSec = AudioRate ? AudioRate : 22050;
+		}
+#endif
 		unguardf(( TEXT("(%i)"), Sound->Data.Num() ));
 
 		// Unload the data.
@@ -605,6 +630,17 @@ void UGenericAudioSubsystem::Update( FPointRegion Region, FCoords& Coords )
 	INT AndroidAudioActiveIds = 0;
 	INT AndroidAudioActiveChannels = 0;
 	INT AndroidAudioStarted = 0;
+	INT AndroidAmbientActors = 0;
+	INT AndroidAmbientValid = 0;
+	INT AndroidAmbientInRange = 0;
+	INT AndroidAmbientAlready = 0;
+	INT AndroidAmbientRequested = 0;
+	INT AndroidAmbientAccepted = 0;
+	INT AndroidAmbientNull = 0;
+	INT AndroidAmbientBadActor = 0;
+	INT AndroidAmbientBadSound = 0;
+	INT AndroidAmbientOutOfRange = 0;
+	INT AndroidAmbientZeroVolume = 0;
 #endif
 	
 	// Lock to sync sound.
@@ -687,8 +723,53 @@ void UGenericAudioSubsystem::Update( FPointRegion Region, FCoords& Coords )
 			if( Actor && !IsKnownAudioActorPointer(Actor) )
 			{
 				debugf( NAME_Init, TEXT("UT99_ANDROID_V212_AUDIO_SKIP_BAD_ACTOR index=%i actor=0x%08x"), i, (DWORD)(QWORD)Actor );
+#if PLATFORM_ANDROID
+				AndroidAmbientBadActor++;
+#endif
 				continue;
 			}
+#if PLATFORM_ANDROID
+			if( !Actor )
+			{
+				AndroidAmbientNull++;
+				continue;
+			}
+			if( Actor->AmbientSound )
+				AndroidAmbientActors++;
+			else
+				continue;
+			const UBOOL bKnownAmbient = IsKnownAudioSoundPointer(Actor->AmbientSound);
+			if( bKnownAmbient )
+				AndroidAmbientValid++;
+			else
+			{
+				AndroidAmbientBadSound++;
+				continue;
+			}
+			const FLOAT AmbientRadius = Actor->WorldSoundRadius();
+			const FLOAT AmbientVolume = AmbientFactor*Actor->SoundVolume/255.0;
+			if( AmbientVolume <= 0.f )
+				AndroidAmbientZeroVolume++;
+			if( FDistSquared(ViewActor->Location,Actor->Location) > Square(AmbientRadius) )
+			{
+				AndroidAmbientOutOfRange++;
+				continue;
+			}
+			AndroidAmbientInRange++;
+			INT Id = Actor->GetIndex()*16+SLOT_Ambient*2;
+			INT j;
+			for( j=0; j<Channels; j++ )
+				if( PlayingSounds[j].Id==Id )
+					break;
+			if( j==Channels )
+			{
+				AndroidAmbientRequested++;
+				if( PlaySound( Actor, Id, Actor->AmbientSound, Actor->Location, AmbientVolume, AmbientRadius, Actor->SoundPitch/64.0 ) )
+					AndroidAmbientAccepted++;
+			}
+			else
+				AndroidAmbientAlready++;
+#else
 			if
 			(	Actor
 			&&	IsKnownAudioSoundPointer(Actor->AmbientSound)
@@ -702,6 +783,7 @@ void UGenericAudioSubsystem::Update( FPointRegion Region, FCoords& Coords )
 				if( j==Channels )
 					PlaySound( Actor, Id, Actor->AmbientSound, Actor->Location, AmbientFactor*Actor->SoundVolume/255.0, Actor->WorldSoundRadius(), Actor->SoundPitch/64.0 );
 			}
+#endif
 		}
 		unguard;
 	}
@@ -815,6 +897,59 @@ void UGenericAudioSubsystem::Update( FPointRegion Region, FCoords& Coords )
 
 			// Update the sound.
 			Sample* Sample = GetSound(Playing.Sound);
+#if PLATFORM_ANDROID
+			if( Playing.Pitch <= 0.01f )
+			{
+				debugf( NAME_Init, TEXT("UT99_ANDROID_V295_AUDIO_PLAYBACK_FIX stage=pitch id=%i sound=%s oldPitch=%f"),
+					Playing.Id,
+					Playing.Sound ? Playing.Sound->GetFullName() : TEXT("None"),
+					Playing.Pitch );
+				Playing.Pitch = 1.f;
+			}
+			if( Sample && Sample->SamplesPerSec <= 0 )
+			{
+				debugf( NAME_Init, TEXT("UT99_ANDROID_V294_AUDIO_SAMPLE_RATE_FIX stage=update id=%i sound=%s oldRate=%i audioRate=%i length=%i type=0x%04x"),
+					Playing.Id,
+					Playing.Sound ? Playing.Sound->GetFullName() : TEXT("None"),
+					Sample->SamplesPerSec,
+					AudioRate,
+					Sample->Length,
+					Sample->Type );
+				Sample->SamplesPerSec = AudioRate ? AudioRate : 22050;
+			}
+			INT AndroidPlaybackFreq = Sample ? (INT)(Sample->SamplesPerSec * Playing.Pitch * Doppler) : 0;
+			if( Sample && AndroidPlaybackFreq <= 0 )
+			{
+				debugf( NAME_Init, TEXT("UT99_ANDROID_V295_AUDIO_PLAYBACK_FIX stage=freq id=%i sound=%s rate=%i pitch=%f doppler=%f audioRate=%i length=%i type=0x%04x"),
+					Playing.Id,
+					Playing.Sound ? Playing.Sound->GetFullName() : TEXT("None"),
+					Sample->SamplesPerSec,
+					Playing.Pitch,
+					Doppler,
+					AudioRate,
+					Sample->Length,
+					Sample->Type );
+				if( Sample->SamplesPerSec <= 0 )
+					Sample->SamplesPerSec = AudioRate ? AudioRate : 22050;
+				AndroidPlaybackFreq = Sample->SamplesPerSec > 0 ? Sample->SamplesPerSec : 22050;
+			}
+			if( Sample && (Playing.Id&14)==SLOT_Ambient*2 && !(Sample->Type & SAMPLE_LOOPED) )
+			{
+				debugf( NAME_Init, TEXT("UT99_ANDROID_V297_AUDIO_FORCE_AMBIENT_LOOP id=%i sound=%s type=0x%04x length=%i loop=%i,%i"),
+					Playing.Id,
+					Playing.Sound ? Playing.Sound->GetFullName() : TEXT("None"),
+					Sample->Type,
+					Sample->Length,
+					Sample->LoopStart,
+					Sample->LoopEnd );
+				Sample->Type |= SAMPLE_LOOPED;
+				if( Sample->LoopEnd <= Sample->LoopStart || Sample->LoopEnd > Sample->Length )
+				{
+					Sample->LoopStart = 0;
+					Sample->LoopEnd = Sample->Length;
+				}
+			}
+#endif
 			FVector Z(0,0,0);
 			FVector L(Location.X/400.0,Location.Y/400.0,Location.Z/400.0);
 
@@ -825,7 +960,11 @@ void UGenericAudioSubsystem::Update( FPointRegion Region, FCoords& Coords )
 				UpdateSample
 				( 
 					Playing.Channel,
+#if PLATFORM_ANDROID
+					AndroidPlaybackFreq,
+#else
 					(INT) (Sample->SamplesPerSec * Playing.Pitch * Doppler),
+#endif
 					SoundVolume,
 					SoundPan
 				);
@@ -840,7 +979,11 @@ void UGenericAudioSubsystem::Update( FPointRegion Region, FCoords& Coords )
 				{
 					Playing.Channel = StartSample
 						( Index+1, Sample, 
+#if PLATFORM_ANDROID
+						  AndroidPlaybackFreq,
+#else
 						  (INT) (Sample->SamplesPerSec * Playing.Pitch * Doppler), 
+#endif
 						  SoundVolume, SoundPan );
 #if PLATFORM_ANDROID
 					AndroidAudioStarted++;
@@ -851,7 +994,7 @@ void UGenericAudioSubsystem::Update( FPointRegion Region, FCoords& Coords )
 							Index,
 							Playing.Id,
 							Sample,
-							Sample ? (INT)(Sample->SamplesPerSec * Playing.Pitch * Doppler) : 0,
+							AndroidPlaybackFreq,
 							SoundVolume,
 							SoundPan,
 							Playing.Channel,
@@ -866,6 +1009,24 @@ void UGenericAudioSubsystem::Update( FPointRegion Region, FCoords& Coords )
 	}
 	unguard;
 #if PLATFORM_ANDROID
+	if( AndroidAudioUpdateLogs < 32 || (AndroidAudioUpdateLogs % 120) == 0 )
+		debugf( NAME_Init, TEXT("UT99_ANDROID_V293_AUDIO_AMBIENT_SCAN count=%i realtime=%i actors=%i valid=%i inRange=%i requested=%i accepted=%i already=%i null=%i badActor=%i badSound=%i outRange=%i zeroVol=%i factor=%f viewActor=%s levelActors=%i"),
+			AndroidAudioUpdateLogs,
+			Realtime,
+			AndroidAmbientActors,
+			AndroidAmbientValid,
+			AndroidAmbientInRange,
+			AndroidAmbientRequested,
+			AndroidAmbientAccepted,
+			AndroidAmbientAlready,
+			AndroidAmbientNull,
+			AndroidAmbientBadActor,
+			AndroidAmbientBadSound,
+			AndroidAmbientOutOfRange,
+			AndroidAmbientZeroVolume,
+			AmbientFactor,
+			ViewActor ? ViewActor->GetFullName() : TEXT("None"),
+			Level ? Level->Actors.Num() : -1 );
 #if UT99_ANDROID_AUDIO_FRAME_TRACE
 	if( AndroidAudioUpdateLogs < 32 || (AndroidAudioUpdateLogs % 120) == 0 )
 		debugf( NAME_Init, TEXT("UT99_ANDROID_V236_AUDIO_UPDATE count=%i realtime=%i activeIds=%i activeChannels=%i started=%i viewActor=%s levelActors=%i"),

@@ -10,6 +10,10 @@ Revision history:
 #include "EnginePrivate.h"
 #include "UnRender.h"
 
+#if PLATFORM_ANDROID
+extern UBOOL GAndroidFrontendMenuRequested;
+#endif
+
 static UBOOL IsKnownCanvasObject( UObject* Object )
 {
 	guardSlow(IsKnownCanvasObject);
@@ -525,7 +529,44 @@ void UCanvas::Update( FSceneNode* InFrame )
 	guard(UCanvas::Update);
 
 	// Call UnrealScript to reset.
-	eventReset();
+#if PLATFORM_ANDROID
+	UBOOL AndroidFastReset = 0;
+	if
+	(	InFrame
+	&&	InFrame->Viewport
+	&&	InFrame->Viewport->Actor
+	&&	InFrame->Viewport->Actor->GetLevel()
+	&&	InFrame->Viewport->Actor->GetLevel()->GetOuter()
+	&&	appStricmp( InFrame->Viewport->Actor->GetLevel()->GetOuter()->GetName(), TEXT("CityIntro") ) == 0
+	&&	InFrame->Viewport->Actor->Physics == PHYS_Interpolating
+	&&	!GAndroidFrontendMenuRequested )
+	{
+		AndroidFastReset = 1;
+		static UBOOL AndroidLoggedFastCanvasReset = 0;
+		if( !AndroidLoggedFastCanvasReset )
+		{
+			AndroidLoggedFastCanvasReset = 1;
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V299_FAST_CANVAS_RESET actor=%s"),
+				InFrame->Viewport->Actor->GetFullName() );
+		}
+		UCanvas* DefaultCanvas = (UCanvas*)GetClass()->GetDefaultObject();
+		Font        = DefaultCanvas->Font;
+		SpaceX      = DefaultCanvas->SpaceX;
+		SpaceY      = DefaultCanvas->SpaceY;
+		OrgX        = DefaultCanvas->OrgX;
+		OrgY        = DefaultCanvas->OrgY;
+		CurX        = DefaultCanvas->CurX;
+		CurY        = DefaultCanvas->CurY;
+		Style       = DefaultCanvas->Style;
+		Color       = DefaultCanvas->Color;
+		CurYL       = DefaultCanvas->CurYL;
+		bCenter     = 0;
+		bNoSmooth   = 0;
+		Z           = 1.0f;
+	}
+	if( !AndroidFastReset )
+#endif
+		eventReset();
 
 	// Copy size parameters from viewport.
 	Frame = InFrame;

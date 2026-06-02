@@ -12,6 +12,10 @@
 #if defined(__ANDROID__)
 extern UBOOL GAndroidFrontendMenuRequested;
 
+#ifndef UT99_ANDROID_PROFILE_ACTOR_TICK
+#define UT99_ANDROID_PROFILE_ACTOR_TICK 0
+#endif
+
 static inline UBOOL IsAndroidLogoFrontendLevel( ULevel* Level )
 {
 	return Level && Level->GetOuter()
@@ -20,9 +24,105 @@ static inline UBOOL IsAndroidLogoFrontendLevel( ULevel* Level )
 	||	appStricmp( Level->GetOuter()->GetName(), TEXT("Entry") ) == 0 );
 }
 
+static inline UBOOL IsAndroidCityIntroLevel( ULevel* Level )
+{
+	return Level && Level->GetOuter()
+	&&	appStricmp( Level->GetOuter()->GetName(), TEXT("CityIntro") ) == 0;
+}
+
 static inline UBOOL IsAndroidClassNamed( UObject* Object, const TCHAR* ClassName )
 {
 	return Object && Object->GetClass() && appStricmp( Object->GetClass()->GetName(), ClassName ) == 0;
+}
+
+static inline void AndroidDisableProbe( UObject* Object, FName ProbeName )
+{
+	if
+	(	Object
+	&&	Object->GetStateFrame()
+	&&	ProbeName.GetIndex() >= NAME_PROBEMIN
+	&&	ProbeName.GetIndex() < NAME_PROBEMAX )
+		Object->GetStateFrame()->ProbeMask &= ~((QWORD)1 << (ProbeName.GetIndex() - NAME_PROBEMIN));
+}
+
+static UBOOL AndroidFastTriggerLightTick( AActor* Actor, FLOAT DeltaSeconds )
+{
+	if( !Actor || !IsAndroidCityIntroLevel( Actor->GetLevel() ) || !IsAndroidClassNamed( Actor, TEXT("TriggerLight") ) )
+		return 0;
+
+	static UClass* CachedClass = NULL;
+	static UFloatProperty* ChangeTimeProp = NULL;
+	static UBoolProperty* DelayFullOnProp = NULL;
+	static UFloatProperty* InitialBrightnessProp = NULL;
+	static UFloatProperty* AlphaProp = NULL;
+	static UFloatProperty* DirectionProp = NULL;
+	static UObjectProperty* SavedTriggerProp = NULL;
+	if( Actor->GetClass() != CachedClass )
+	{
+		CachedClass = Actor->GetClass();
+		ChangeTimeProp = Cast<UFloatProperty>( FindField<UProperty>( CachedClass, TEXT("ChangeTime") ) );
+		DelayFullOnProp = Cast<UBoolProperty>( FindField<UProperty>( CachedClass, TEXT("bDelayFullOn") ) );
+		InitialBrightnessProp = Cast<UFloatProperty>( FindField<UProperty>( CachedClass, TEXT("InitialBrightness") ) );
+		AlphaProp = Cast<UFloatProperty>( FindField<UProperty>( CachedClass, TEXT("Alpha") ) );
+		DirectionProp = Cast<UFloatProperty>( FindField<UProperty>( CachedClass, TEXT("Direction") ) );
+		SavedTriggerProp = Cast<UObjectProperty>( FindField<UProperty>( CachedClass, TEXT("SavedTrigger") ) );
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V314_TRIGGERLIGHT_NATIVE_BIND class=%s change=%i delay=%i init=%i alpha=%i dir=%i saved=%i"),
+			CachedClass ? CachedClass->GetName() : TEXT("None"),
+			ChangeTimeProp ? ChangeTimeProp->Offset : -1,
+			DelayFullOnProp ? DelayFullOnProp->Offset : -1,
+			InitialBrightnessProp ? InitialBrightnessProp->Offset : -1,
+			AlphaProp ? AlphaProp->Offset : -1,
+			DirectionProp ? DirectionProp->Offset : -1,
+			SavedTriggerProp ? SavedTriggerProp->Offset : -1 );
+	}
+	if( !ChangeTimeProp || !DelayFullOnProp || !InitialBrightnessProp || !AlphaProp || !DirectionProp )
+		return 0;
+
+	FLOAT& ChangeTime = *(FLOAT*)((BYTE*)Actor + ChangeTimeProp->Offset);
+	FLOAT& InitialBrightness = *(FLOAT*)((BYTE*)Actor + InitialBrightnessProp->Offset);
+	FLOAT& Alpha = *(FLOAT*)((BYTE*)Actor + AlphaProp->Offset);
+	FLOAT& Direction = *(FLOAT*)((BYTE*)Actor + DirectionProp->Offset);
+	const UBOOL bDelayFullOn = (*(BITFIELD*)((BYTE*)Actor + DelayFullOnProp->Offset) & DelayFullOnProp->BitMask) != 0;
+	AActor* SavedTrigger = SavedTriggerProp ? *(AActor**)((BYTE*)Actor + SavedTriggerProp->Offset) : NULL;
+
+	if( ChangeTime <= 0.0001f )
+		ChangeTime = 0.0001f;
+	Alpha += Direction * DeltaSeconds / ChangeTime;
+	if( Alpha > 1.0f )
+	{
+		Alpha = 1.0f;
+		AndroidDisableProbe( Actor, NAME_Tick );
+		if( SavedTrigger )
+			SavedTrigger->eventEndEvent();
+	}
+	else if( Alpha < 0.0f )
+	{
+		Alpha = 0.0f;
+		AndroidDisableProbe( Actor, NAME_Tick );
+		if( SavedTrigger )
+			SavedTrigger->eventEndEvent();
+	}
+
+	FLOAT NewBrightness = 0.0f;
+	if( !bDelayFullOn )
+		NewBrightness = Alpha * InitialBrightness;
+	else if( (Direction > 0.0f && Alpha != 1.0f) || Alpha == 0.0f )
+		NewBrightness = 0.0f;
+	else
+		NewBrightness = InitialBrightness;
+	Actor->LightBrightness = Clamp<INT>( appRound(NewBrightness), 0, 255 );
+
+	static INT AndroidTriggerLightFastLogs = 0;
+	if( AndroidTriggerLightFastLogs < 12 )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V314_TRIGGERLIGHT_NATIVE_TICK actor=%s alpha=%f dir=%f brightness=%i"),
+			Actor->GetFullName(),
+			Alpha,
+			Direction,
+			Actor->LightBrightness );
+		AndroidTriggerLightFastLogs++;
+	}
+	return 1;
 }
 #endif
 
@@ -65,6 +165,17 @@ struct FActorPriority
 UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 {
 	guard(AActor::Tick);
+#if defined(__ANDROID__) && UT99_ANDROID_PROFILE_ACTOR_TICK
+	const DOUBLE AndroidActorTickStart = appSeconds();
+	DOUBLE AndroidActorLastPhase = AndroidActorTickStart;
+	DOUBLE AndroidActorAnimMs = 0.0;
+	DOUBLE AndroidActorScriptMs = 0.0;
+	DOUBLE AndroidActorStateMs = 0.0;
+	DOUBLE AndroidActorTimerMs = 0.0;
+	DOUBLE AndroidActorPhysicsMs = 0.0;
+	DOUBLE AndroidActorPawnMs = 0.0;
+#define UT99_ANDROID_ACTOR_PHASE_MS(Target) do { DOUBLE AndroidNowPhase = appSeconds(); Target += (AndroidNowPhase - AndroidActorLastPhase) * 1000.0; AndroidActorLastPhase = AndroidNowPhase; } while(0)
+#endif
 
 	// Ignore actors in stasis
 	if
@@ -84,6 +195,9 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 	APawn* Pawn = NULL;
 	if( bIsPawn )
 		Pawn = Cast<APawn>(this);
+#if defined(__ANDROID__)
+	UBOOL AndroidSkipScriptState = 0;
+#endif
 
 	INT bSimulatedPawn = ( Pawn && (Role == ROLE_SimulatedProxy) );
 
@@ -211,6 +325,9 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 			}
 		}
 	}
+#if defined(__ANDROID__) && UT99_ANDROID_PROFILE_ACTOR_TICK
+	UT99_ANDROID_ACTOR_PHASE_MS(AndroidActorAnimMs);
+#endif
 
 	// This actor is tickable.
 	if( bSimulatedPawn )
@@ -232,6 +349,9 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 		// Tick the nonplayer.
 		if ( IsProbing(NAME_Tick) )
 			eventTick(DeltaSeconds);
+#if defined(__ANDROID__) && UT99_ANDROID_PROFILE_ACTOR_TICK
+		UT99_ANDROID_ACTOR_PHASE_MS(AndroidActorScriptMs);
+#endif
 	}
 	else if( RemoteRole == ROLE_AutonomousProxy ) 
 	{
@@ -290,7 +410,15 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 
 			// Tick the nonplayer.
 			if ( IsProbing(NAME_Tick) )
-				eventTick(DeltaSeconds);
+			{
+#if defined(__ANDROID__)
+				if( !AndroidFastTriggerLightTick( this, DeltaSeconds ) )
+#endif
+					eventTick(DeltaSeconds);
+			}
+#if defined(__ANDROID__) && UT99_ANDROID_PROFILE_ACTOR_TICK
+			UT99_ANDROID_ACTOR_PHASE_MS(AndroidActorScriptMs);
+#endif
 		}
 		else
 		{
@@ -302,6 +430,7 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 			PlayerPawn->Player->ReadInput( DeltaSeconds );
 #if defined(__ANDROID__)
 			UBOOL AndroidSkipLogoPlayerScript = 0;
+			UBOOL AndroidSkipCityIntroPlayerScript = 0;
 			if( IsAndroidLogoFrontendLevel( GetLevel() ) && !GAndroidFrontendMenuRequested )
 			{
 				static UBOOL AndroidLoggedLogoTickSkip = 0;
@@ -315,7 +444,22 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 				AndroidSkipLogoPlayerScript = 1;
 				PlayerPawn->Player->ReadInput( -1.0 );
 			}
-			if( !AndroidSkipLogoPlayerScript )
+			if( IsAndroidCityIntroLevel( GetLevel() ) && !GAndroidFrontendMenuRequested && PlayerPawn->Physics == PHYS_Interpolating )
+			{
+				static UBOOL AndroidLoggedCityIntroTickSkip = 0;
+				if( !AndroidLoggedCityIntroTickSkip )
+				{
+					AndroidLoggedCityIntroTickSkip = 1;
+					debugf( NAME_Log, TEXT("UT99_ANDROID_V308_SKIP_CITYINTRO_PLAYER_SCRIPT actor=%s delta=%f physics=%i"),
+						PlayerPawn->GetFullName(),
+						DeltaSeconds,
+						PlayerPawn->Physics );
+				}
+				AndroidSkipCityIntroPlayerScript = 1;
+				AndroidSkipScriptState = 1;
+				PlayerPawn->Player->ReadInput( -1.0 );
+			}
+			if( !AndroidSkipLogoPlayerScript && !AndroidSkipCityIntroPlayerScript )
 			{
 #endif
 			PlayerPawn->eventPlayerInput( DeltaSeconds );
@@ -323,6 +467,9 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 			PlayerPawn->Player->ReadInput( -1.0 );
 #if defined(__ANDROID__)
 			}
+#endif
+#if defined(__ANDROID__) && UT99_ANDROID_PROFILE_ACTOR_TICK
+			UT99_ANDROID_ACTOR_PHASE_MS(AndroidActorScriptMs);
 #endif
 
 			if( GetLevel()->DemoRecDriver && !GetLevel()->DemoRecDriver->ServerConnection )
@@ -333,21 +480,30 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 		}
 
 		// Update the actor's script state code.
-		ProcessState( DeltaSeconds );
+#if defined(__ANDROID__)
+		if( !AndroidSkipScriptState )
+#endif
+			ProcessState( DeltaSeconds );
+#if defined(__ANDROID__) && UT99_ANDROID_PROFILE_ACTOR_TICK
+		UT99_ANDROID_ACTOR_PHASE_MS(AndroidActorStateMs);
+#endif
 
 		// Update timers.
 		if( TimerRate>0.0 && (TimerCounter+=DeltaSeconds)>=TimerRate )
 		{
 #if defined(__ANDROID__)
-			if( IsAndroidLogoFrontendLevel( GetLevel() ) && !GAndroidFrontendMenuRequested && IsAndroidClassNamed( this, TEXT("CHNullHUD") ) )
+			if( !GAndroidFrontendMenuRequested
+			&&	IsAndroidClassNamed( this, TEXT("CHNullHUD") )
+			&&	( IsAndroidLogoFrontendLevel( GetLevel() ) || IsAndroidCityIntroLevel( GetLevel() ) ) )
 			{
 				static UBOOL AndroidLoggedLogoHudTimerSkip = 0;
 				if( !AndroidLoggedLogoHudTimerSkip )
 				{
 					AndroidLoggedLogoHudTimerSkip = 1;
-					debugf( NAME_Log, TEXT("UT99_ANDROID_V252_SKIP_LOGO_HUD_TIMER actor=%s map=%s"),
+					debugf( NAME_Log, TEXT("UT99_ANDROID_V309_SKIP_NULL_HUD_TIMER actor=%s map=%s delta=%f"),
 						GetFullName(),
-						GetLevel()->GetOuter()->GetName() );
+						GetLevel()->GetOuter()->GetName(),
+						DeltaSeconds );
 				}
 				TimerCounter = 0.0;
 			}
@@ -372,6 +528,9 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 			eventTimer();
 			}
 		}
+#if defined(__ANDROID__) && UT99_ANDROID_PROFILE_ACTOR_TICK
+		UT99_ANDROID_ACTOR_PHASE_MS(AndroidActorTimerMs);
+#endif
 
 		// Update LifeSpan.
 		if( LifeSpan!=0.f )
@@ -389,9 +548,17 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 		// Perform physics.
 		if( Physics!=PHYS_None && Role!=ROLE_AutonomousProxy )
 			performPhysics( DeltaSeconds );
+#if defined(__ANDROID__) && UT99_ANDROID_PROFILE_ACTOR_TICK
+		UT99_ANDROID_ACTOR_PHASE_MS(AndroidActorPhysicsMs);
+#endif
 	}
 	else if ( Physics == PHYS_Falling ) // dumbproxies simulate falling if client side physics set
+	{
 		performPhysics( DeltaSeconds );
+#if defined(__ANDROID__) && UT99_ANDROID_PROFILE_ACTOR_TICK
+		UT99_ANDROID_ACTOR_PHASE_MS(AndroidActorPhysicsMs);
+#endif
+	}
 
 	// During demo playback, setup view offsets for viewtarget
 	if( GetLevel()->DemoRecDriver && GetLevel()->DemoRecDriver->ServerConnection )
@@ -474,6 +641,92 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 				Pawn->eventUpdateTactics(DeltaSeconds);
 		}
 	}
+#if defined(__ANDROID__) && UT99_ANDROID_PROFILE_ACTOR_TICK
+	UT99_ANDROID_ACTOR_PHASE_MS(AndroidActorPawnMs);
+	const DOUBLE AndroidActorTotalMs = (appSeconds() - AndroidActorTickStart) * 1000.0;
+	static DOUBLE AndroidActorSummaryStart = 0.0;
+	static DOUBLE AndroidActorSummaryTotalMs = 0.0;
+	static DOUBLE AndroidActorSummaryAnimMs = 0.0;
+	static DOUBLE AndroidActorSummaryScriptMs = 0.0;
+	static DOUBLE AndroidActorSummaryStateMs = 0.0;
+	static DOUBLE AndroidActorSummaryTimerMs = 0.0;
+	static DOUBLE AndroidActorSummaryPhysicsMs = 0.0;
+	static DOUBLE AndroidActorSummaryPawnMs = 0.0;
+	static DOUBLE AndroidActorSummaryMaxMs = 0.0;
+	static INT AndroidActorSummaryCalls = 0;
+	static INT AndroidActorSummarySlowCalls = 0;
+	static const TCHAR* AndroidActorSummaryMaxActor = TEXT("None");
+	static const TCHAR* AndroidActorSummaryMaxClass = TEXT("None");
+	const DOUBLE AndroidActorSummaryNow = appSeconds();
+	if( AndroidActorSummaryStart <= 0.0 )
+		AndroidActorSummaryStart = AndroidActorSummaryNow;
+	AndroidActorSummaryTotalMs += AndroidActorTotalMs;
+	AndroidActorSummaryAnimMs += AndroidActorAnimMs;
+	AndroidActorSummaryScriptMs += AndroidActorScriptMs;
+	AndroidActorSummaryStateMs += AndroidActorStateMs;
+	AndroidActorSummaryTimerMs += AndroidActorTimerMs;
+	AndroidActorSummaryPhysicsMs += AndroidActorPhysicsMs;
+	AndroidActorSummaryPawnMs += AndroidActorPawnMs;
+	AndroidActorSummaryCalls++;
+	if( AndroidActorTotalMs > 5.0 )
+		AndroidActorSummarySlowCalls++;
+	if( AndroidActorTotalMs > AndroidActorSummaryMaxMs )
+	{
+		AndroidActorSummaryMaxMs = AndroidActorTotalMs;
+		AndroidActorSummaryMaxActor = GetFullName();
+		AndroidActorSummaryMaxClass = GetClass() ? GetClass()->GetName() : TEXT("None");
+	}
+	if( AndroidActorSummaryNow - AndroidActorSummaryStart >= 1.0 )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V313_ACTOR_TICK_SUMMARY calls=%i seconds=%f avgTotalMs=%f maxMs=%f maxActor=%s maxClass=%s slowOver5=%i sumTotalMs=%f sumAnimMs=%f sumScriptMs=%f sumStateMs=%f sumTimerMs=%f sumPhysicsMs=%f sumPawnMs=%f map=%s"),
+			AndroidActorSummaryCalls,
+			AndroidActorSummaryNow - AndroidActorSummaryStart,
+			AndroidActorSummaryCalls ? AndroidActorSummaryTotalMs / AndroidActorSummaryCalls : 0.0,
+			AndroidActorSummaryMaxMs,
+			AndroidActorSummaryMaxActor,
+			AndroidActorSummaryMaxClass,
+			AndroidActorSummarySlowCalls,
+			AndroidActorSummaryTotalMs,
+			AndroidActorSummaryAnimMs,
+			AndroidActorSummaryScriptMs,
+			AndroidActorSummaryStateMs,
+			AndroidActorSummaryTimerMs,
+			AndroidActorSummaryPhysicsMs,
+			AndroidActorSummaryPawnMs,
+			GetLevel() && GetLevel()->GetOuter() ? GetLevel()->GetOuter()->GetName() : TEXT("None") );
+		AndroidActorSummaryStart = AndroidActorSummaryNow;
+		AndroidActorSummaryTotalMs = AndroidActorSummaryAnimMs = AndroidActorSummaryScriptMs = AndroidActorSummaryStateMs = 0.0;
+		AndroidActorSummaryTimerMs = AndroidActorSummaryPhysicsMs = AndroidActorSummaryPawnMs = 0.0;
+		AndroidActorSummaryMaxMs = 0.0;
+		AndroidActorSummaryCalls = 0;
+		AndroidActorSummarySlowCalls = 0;
+		AndroidActorSummaryMaxActor = TEXT("None");
+		AndroidActorSummaryMaxClass = TEXT("None");
+	}
+	if( AndroidActorTotalMs > 20.0 )
+	{
+		static INT AndroidSlowActorTickLogs = 0;
+		if( AndroidSlowActorTickLogs < 96 || (AndroidSlowActorTickLogs % 120) == 0 )
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V305_SLOW_ACTOR_TICK count=%i ms=%f actor=%s class=%s phys=%i role=%i remote=%i tickType=%i delta=%f anim=%f script=%f state=%f timer=%f physics=%f pawn=%f"),
+				AndroidSlowActorTickLogs,
+				AndroidActorTotalMs,
+				GetFullName(),
+				GetClass() ? GetClass()->GetName() : TEXT("None"),
+				Physics,
+				Role,
+				RemoteRole,
+				TickType,
+				DeltaSeconds,
+				AndroidActorAnimMs,
+				AndroidActorScriptMs,
+				AndroidActorStateMs,
+				AndroidActorTimerMs,
+				AndroidActorPhysicsMs,
+				AndroidActorPawnMs );
+		AndroidSlowActorTickLogs++;
+	}
+#undef UT99_ANDROID_ACTOR_PHASE_MS
+#endif
 
 	return 1;
 	unguard;
@@ -805,6 +1058,31 @@ INT ULevel::TickDemoPlayback( FLOAT DeltaSeconds )
 void ULevel::Tick( ELevelTick TickType, FLOAT DeltaSeconds )
 {
 	guard(ULevel::Tick);
+#if defined(__ANDROID__)
+	const DOUBLE AndroidLevelTickStart = appSeconds();
+	DOUBLE AndroidAfterPreNet = AndroidLevelTickStart;
+	DOUBLE AndroidAfterDemo = AndroidLevelTickStart;
+	DOUBLE AndroidAfterCollision = AndroidLevelTickStart;
+	DOUBLE AndroidAfterTime = AndroidLevelTickStart;
+	DOUBLE AndroidAfterActors = AndroidLevelTickStart;
+	DOUBLE AndroidAfterNetServer = AndroidLevelTickStart;
+	DOUBLE AndroidAfterDemoPost = AndroidLevelTickStart;
+	static DOUBLE AndroidLevelWindowStart = 0.0;
+	static DOUBLE AndroidAccumPreNetMs = 0.0;
+	static DOUBLE AndroidAccumDemoMs = 0.0;
+	static DOUBLE AndroidAccumCollisionMs = 0.0;
+	static DOUBLE AndroidAccumTimeMs = 0.0;
+	static DOUBLE AndroidAccumActorsMs = 0.0;
+	static DOUBLE AndroidAccumNetServerMs = 0.0;
+	static DOUBLE AndroidAccumDemoPostMs = 0.0;
+	static DOUBLE AndroidAccumTotalMs = 0.0;
+	static DOUBLE AndroidMaxActorsMs = 0.0;
+	static DOUBLE AndroidMaxTotalMs = 0.0;
+	static INT AndroidLevelFrames = 0;
+	static INT AndroidAccumUpdatedActors = 0;
+	if( AndroidLevelWindowStart <= 0.0 )
+		AndroidLevelWindowStart = AndroidLevelTickStart;
+#endif
 	ALevelInfo* Info = GetLevelInfo();
 	InitStats();
 	FMemMark Mark(GMem);
@@ -832,6 +1110,9 @@ void ULevel::Tick( ELevelTick TickType, FLOAT DeltaSeconds )
 			TickNetClient( DeltaSeconds );
 	}
 	unguard;
+#if defined(__ANDROID__)
+	AndroidAfterPreNet = appSeconds();
+#endif
 
 	// Fetch demo playback packets from demo file.
 	guard(UpdatePreDemoRec);
@@ -842,12 +1123,18 @@ void ULevel::Tick( ELevelTick TickType, FLOAT DeltaSeconds )
 			TickDemoPlayback( DeltaSeconds );
 	}
 	unguard;
+#if defined(__ANDROID__)
+	AndroidAfterDemo = appSeconds();
+#endif
 
 	// Update collision.
 	guard(UpdateCollision);
 	if( Hash )
 		Hash->Tick();
 	unguard;
+#if defined(__ANDROID__)
+	AndroidAfterCollision = appSeconds();
+#endif
 
 	// Update time.
 	guard(UpdateTime);
@@ -858,9 +1145,25 @@ void ULevel::Tick( ELevelTick TickType, FLOAT DeltaSeconds )
 	if( Info->bPlayersOnly )
 		TickType = LEVELTICK_ViewportsOnly;
 	unguard;
+#if defined(__ANDROID__)
+	AndroidAfterTime = appSeconds();
+#endif
 
 	// Clamp time between 200 fps and 2.5 fps.
 	DeltaSeconds = Clamp(DeltaSeconds,0.005f,0.40f);
+#if defined(__ANDROID__)
+	if( IsAndroidCityIntroLevel( this ) && DeltaSeconds > (1.0f/30.0f) )
+	{
+		static INT AndroidCityIntroDeltaClampLogs = 0;
+		if( AndroidCityIntroDeltaClampLogs < 8 )
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V307_CITYINTRO_DELTA_CLAMP old=%f new=%f realtime=%f"),
+				DeltaSeconds,
+				1.0f/30.0f,
+				appSeconds() );
+		AndroidCityIntroDeltaClampLogs++;
+		DeltaSeconds = 1.0f/30.0f;
+	}
+#endif
 
 	// If caller wants time update only, or we are paused, skip the rest.
 	clock(ActorTickCycles);
@@ -875,7 +1178,12 @@ void ULevel::Tick( ELevelTick TickType, FLOAT DeltaSeconds )
 		INT Updated  = 0;
 		for( INT iActor=iFirstDynamicActor; iActor<Actors.Num(); iActor++ )
 			if( Actors( iActor ) )
+			{
 				Updated += Actors( iActor )->Tick(DeltaSeconds,TickType);
+#if defined(__ANDROID__)
+				AndroidAccumUpdatedActors++;
+#endif
+			}
 		while( NewlySpawned && Updated )
 		{
 			FActorLink* Link = NewlySpawned;
@@ -883,7 +1191,12 @@ void ULevel::Tick( ELevelTick TickType, FLOAT DeltaSeconds )
 			Updated          = 0;
 			for( Link; Link; Link=Link->Next )
 				if( Link->Actor->bTicked!=(DWORD)Ticked )
+				{
 					Updated += Link->Actor->Tick( DeltaSeconds, TickType );
+#if defined(__ANDROID__)
+					AndroidAccumUpdatedActors++;
+#endif
+				}
 		}
 		unguard;
 	}
@@ -908,6 +1221,9 @@ void ULevel::Tick( ELevelTick TickType, FLOAT DeltaSeconds )
 		unguard;
 	}
 	unclock(ActorTickCycles);
+#if defined(__ANDROID__)
+	AndroidAfterActors = appSeconds();
+#endif
 
 	// Update net server and flush networking.
 	guard(UpdateNetServer);
@@ -918,6 +1234,9 @@ void ULevel::Tick( ELevelTick TickType, FLOAT DeltaSeconds )
 		NetDriver->TickFlush();
 	}
 	unguard;
+#if defined(__ANDROID__)
+	AndroidAfterNetServer = appSeconds();
+#endif
 
 	// Demo Recording.
 	guard(UpdatePostDemoRec);
@@ -928,6 +1247,56 @@ void ULevel::Tick( ELevelTick TickType, FLOAT DeltaSeconds )
 		DemoRecDriver->TickFlush();
 	}
 	unguard;
+#if defined(__ANDROID__)
+	AndroidAfterDemoPost = appSeconds();
+	const DOUBLE AndroidPreNetMs = (AndroidAfterPreNet - AndroidLevelTickStart) * 1000.0;
+	const DOUBLE AndroidDemoMs = (AndroidAfterDemo - AndroidAfterPreNet) * 1000.0;
+	const DOUBLE AndroidCollisionMs = (AndroidAfterCollision - AndroidAfterDemo) * 1000.0;
+	const DOUBLE AndroidTimeMs = (AndroidAfterTime - AndroidAfterCollision) * 1000.0;
+	const DOUBLE AndroidActorsMs = (AndroidAfterActors - AndroidAfterTime) * 1000.0;
+	const DOUBLE AndroidNetServerMs = (AndroidAfterNetServer - AndroidAfterActors) * 1000.0;
+	const DOUBLE AndroidDemoPostMs = (AndroidAfterDemoPost - AndroidAfterNetServer) * 1000.0;
+	const DOUBLE AndroidTotalMs = (AndroidAfterDemoPost - AndroidLevelTickStart) * 1000.0;
+	AndroidAccumPreNetMs += AndroidPreNetMs;
+	AndroidAccumDemoMs += AndroidDemoMs;
+	AndroidAccumCollisionMs += AndroidCollisionMs;
+	AndroidAccumTimeMs += AndroidTimeMs;
+	AndroidAccumActorsMs += AndroidActorsMs;
+	AndroidAccumNetServerMs += AndroidNetServerMs;
+	AndroidAccumDemoPostMs += AndroidDemoPostMs;
+	AndroidAccumTotalMs += AndroidTotalMs;
+	AndroidMaxActorsMs = Max( AndroidMaxActorsMs, AndroidActorsMs );
+	AndroidMaxTotalMs = Max( AndroidMaxTotalMs, AndroidTotalMs );
+	AndroidLevelFrames++;
+	if( AndroidAfterDemoPost - AndroidLevelWindowStart >= 1.0 )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V306_LEVEL_TICK_TIMING frames=%i seconds=%f avgTotalMs=%f maxTotalMs=%f avgPreNetMs=%f avgDemoMs=%f avgCollisionMs=%f avgTimeMs=%f avgActorsMs=%f maxActorsMs=%f avgNetServerMs=%f avgDemoPostMs=%f avgUpdatedActors=%f tickType=%i delta=%f map=%s actors=%i firstDyn=%i"),
+			AndroidLevelFrames,
+			AndroidAfterDemoPost - AndroidLevelWindowStart,
+			AndroidLevelFrames ? AndroidAccumTotalMs / AndroidLevelFrames : 0.0,
+			AndroidMaxTotalMs,
+			AndroidLevelFrames ? AndroidAccumPreNetMs / AndroidLevelFrames : 0.0,
+			AndroidLevelFrames ? AndroidAccumDemoMs / AndroidLevelFrames : 0.0,
+			AndroidLevelFrames ? AndroidAccumCollisionMs / AndroidLevelFrames : 0.0,
+			AndroidLevelFrames ? AndroidAccumTimeMs / AndroidLevelFrames : 0.0,
+			AndroidLevelFrames ? AndroidAccumActorsMs / AndroidLevelFrames : 0.0,
+			AndroidMaxActorsMs,
+			AndroidLevelFrames ? AndroidAccumNetServerMs / AndroidLevelFrames : 0.0,
+			AndroidLevelFrames ? AndroidAccumDemoPostMs / AndroidLevelFrames : 0.0,
+			AndroidLevelFrames ? (FLOAT)AndroidAccumUpdatedActors / AndroidLevelFrames : 0.0f,
+			TickType,
+			DeltaSeconds,
+			GetOuter() ? GetOuter()->GetName() : TEXT("None"),
+			Actors.Num(),
+			iFirstDynamicActor );
+		AndroidLevelWindowStart = AndroidAfterDemoPost;
+		AndroidAccumPreNetMs = AndroidAccumDemoMs = AndroidAccumCollisionMs = AndroidAccumTimeMs = 0.0;
+		AndroidAccumActorsMs = AndroidAccumNetServerMs = AndroidAccumDemoPostMs = AndroidAccumTotalMs = 0.0;
+		AndroidMaxActorsMs = AndroidMaxTotalMs = 0.0;
+		AndroidAccumUpdatedActors = 0;
+		AndroidLevelFrames = 0;
+	}
+#endif
 
 	// Finish up.
 	Ticked = !Ticked;

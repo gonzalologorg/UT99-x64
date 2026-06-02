@@ -199,18 +199,18 @@ static UTexture* AndroidMeshFallbackTexture( FSceneNode* Frame, AActor* Owner, c
 	Fallback = AndroidValidateLodTexture( Owner, Fallback, Context );
 	if( !Fallback && Frame && Frame->Viewport && Frame->Viewport->Actor && Frame->Viewport->Actor->Level )
 		Fallback = AndroidValidateLodTexture( Owner, Frame->Viewport->Actor->Level->DefaultTexture, Context );
-	if( Fallback )
-	{
-		static INT AndroidFallbackLogs = 0;
-		if( AndroidFallbackLogs < 64 )
-		{
-			debugf( NAME_Log, TEXT("UT99_ANDROID_V269_MESH_TEXTURE_FALLBACK context=%s actor=%s texture=%s"),
-				Context,
-				Owner ? Owner->GetFullName() : TEXT("None"),
-				Fallback->GetFullName() );
-			AndroidFallbackLogs++;
-		}
-	}
+	// if( Fallback )
+	// {
+	// 	static INT AndroidFallbackLogs = 0;
+	// 	if( AndroidFallbackLogs < 64 )
+	// 	{
+	// 		debugf( NAME_Log, TEXT("UT99_ANDROID_V269_MESH_TEXTURE_FALLBACK context=%s actor=%s texture=%s"),
+	// 			Context,
+	// 			Owner ? Owner->GetFullName() : TEXT("None"),
+	// 			Fallback->GetFullName() );
+	// 		AndroidFallbackLogs++;
+	// 	}
+	// }
 	return Fallback;
 	unguardSlow;
 }

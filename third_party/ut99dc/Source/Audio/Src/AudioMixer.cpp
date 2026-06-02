@@ -35,15 +35,23 @@ void* DoSound(void* Arguments)
 		switch (Task)
 		{
 			case SOUND_MIXING:
+			{
 				ALock;
 				// Empty the mixing buffer.
 				appMemset(MixBuffer, 0, BufferSize);
 				HasMixedAudio = MixMusicBuffer( MixBuffer, BufferSize );
+#if PLATFORM_ANDROID
+				INT AndroidActiveVoices = 0;
+				INT AndroidFinishedVoices = 0;
+#endif
 				for (i=0; i<AUDIO_TOTALVOICES; i++)
 				{
 					// Get an enabled and active voice.
 					if ((Voices[i].State&VOICE_ENABLED) && (Voices[i].State&VOICE_ACTIVE) && !AudioPaused)
 					{
+#if PLATFORM_ANDROID
+						AndroidActiveVoices++;
+#endif
 						HasMixedAudio = 1;
 						// Mix a buffer's worth of sound.
 						INT Format = Voices[i].pSample->Type & SAMPLE_16BIT 
@@ -60,7 +68,24 @@ void* DoSound(void* Arguments)
 								break;
 						}
 					}
+#if PLATFORM_ANDROID
+					if( Voices[i].State&VOICE_FINISHED )
+						AndroidFinishedVoices++;
+#endif
 				}
+#if PLATFORM_ANDROID
+				static INT AndroidMixerLogs = 0;
+				if( AndroidMixerLogs < 32 || (AndroidMixerLogs % 120) == 0 )
+					debugf( NAME_Init, TEXT("UT99_ANDROID_V296_AUDIO_MIX voices=%i finished=%i mixed=%i paused=%i buffer=%i rate=%i format=0x%08x"),
+						AndroidActiveVoices,
+						AndroidFinishedVoices,
+						HasMixedAudio,
+						AudioPaused,
+						BufferSize,
+						AudioRate,
+						AudioFormat );
+				AndroidMixerLogs++;
+#endif
 				AUnlock;
 				if( !HasMixedAudio )
 				{
@@ -69,6 +94,7 @@ void* DoSound(void* Arguments)
 				}
 				Task = SOUND_PLAYING;
 				break;
+			}
 			case SOUND_PLAYING:
 				// Block until the audio device is writable.
 				if (!AudioPaused)

@@ -14,6 +14,9 @@
 #ifndef UT99_ANDROID_FRAME_TRACE
 #define UT99_ANDROID_FRAME_TRACE 0
 #endif
+#ifndef UT99_ANDROID_SHOW_FPS_COUNTER
+#define UT99_ANDROID_SHOW_FPS_COUNTER 0
+#endif
 UBOOL GAndroidFrontendMenuRequested = 0;
 INT GAndroidInterpPositionScriptOffset = INDEX_NONE;
 INT GAndroidInterpRateScriptOffset = INDEX_NONE;
@@ -870,6 +873,77 @@ static void FixupNativeBoolBlockOffset( UClass* Class, const TCHAR* Label, const
 	unguard;
 }
 
+static void FixupMoverOffsets()
+{
+	guard(FixupMoverOffsets);
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("MoverEncroachType"), STRUCT_OFFSET(AMover,MoverEncroachType) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("MoverGlideType"), STRUCT_OFFSET(AMover,MoverGlideType) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("BumpType"), STRUCT_OFFSET(AMover,BumpType) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("KeyNum"), STRUCT_OFFSET(AMover,KeyNum) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("PrevKeyNum"), STRUCT_OFFSET(AMover,PrevKeyNum) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("NumKeys"), STRUCT_OFFSET(AMover,NumKeys) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("WorldRaytraceKey"), STRUCT_OFFSET(AMover,WorldRaytraceKey) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("BrushRaytraceKey"), STRUCT_OFFSET(AMover,BrushRaytraceKey) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("MoveTime"), STRUCT_OFFSET(AMover,MoveTime) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("StayOpenTime"), STRUCT_OFFSET(AMover,StayOpenTime) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("OtherTime"), STRUCT_OFFSET(AMover,OtherTime) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("EncroachDamage"), STRUCT_OFFSET(AMover,EncroachDamage) );
+	static const TCHAR* MoverConfigBools[] =
+	{
+		TEXT("bTriggerOnceOnly"), TEXT("bSlave"), TEXT("bUseTriggered"), TEXT("bDamageTriggered"), TEXT("bDynamicLightMover")
+	};
+	FixupNativeBoolBlockOffset( AMover::StaticClass(), TEXT("MoverConfigFlags"), MoverConfigBools, ARRAY_COUNT(MoverConfigBools), STRUCT_OFFSET(AMover,PlayerBumpEvent)-sizeof(BITFIELD) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("PlayerBumpEvent"), STRUCT_OFFSET(AMover,PlayerBumpEvent) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("BumpEvent"), STRUCT_OFFSET(AMover,BumpEvent) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("SavedTrigger"), STRUCT_OFFSET(AMover,SavedTrigger) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("DamageThreshold"), STRUCT_OFFSET(AMover,DamageThreshold) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("numTriggerEvents"), STRUCT_OFFSET(AMover,numTriggerEvents) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("Leader"), STRUCT_OFFSET(AMover,Leader) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("Follower"), STRUCT_OFFSET(AMover,Follower) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("ReturnGroup"), STRUCT_OFFSET(AMover,ReturnGroup) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("DelayTime"), STRUCT_OFFSET(AMover,DelayTime) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("OpeningSound"), STRUCT_OFFSET(AMover,OpeningSound) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("OpenedSound"), STRUCT_OFFSET(AMover,OpenedSound) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("ClosingSound"), STRUCT_OFFSET(AMover,ClosingSound) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("ClosedSound"), STRUCT_OFFSET(AMover,ClosedSound) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("MoveAmbientSound"), STRUCT_OFFSET(AMover,MoveAmbientSound) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("KeyPos"), STRUCT_OFFSET(AMover,KeyPos) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("KeyRot"), STRUCT_OFFSET(AMover,KeyRot) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("BasePos"), STRUCT_OFFSET(AMover,BasePos) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("OldPos"), STRUCT_OFFSET(AMover,OldPos) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("OldPrePivot"), STRUCT_OFFSET(AMover,OldPrePivot) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("SavedPos"), STRUCT_OFFSET(AMover,SavedPos) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("BaseRot"), STRUCT_OFFSET(AMover,BaseRot) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("OldRot"), STRUCT_OFFSET(AMover,OldRot) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("SavedRot"), STRUCT_OFFSET(AMover,SavedRot) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("myMarker"), STRUCT_OFFSET(AMover,myMarker) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("TriggerActor"), STRUCT_OFFSET(AMover,TriggerActor) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("TriggerActor2"), STRUCT_OFFSET(AMover,TriggerActor2) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("WaitingPawn"), STRUCT_OFFSET(AMover,WaitingPawn) );
+	static const TCHAR* MoverRuntimeBools[] =
+	{
+		TEXT("bOpening"), TEXT("bDelaying"), TEXT("bClientPause"), TEXT("bPlayerOnly")
+	};
+	FixupNativeBoolBlockOffset( AMover::StaticClass(), TEXT("MoverRuntimeFlags"), MoverRuntimeBools, ARRAY_COUNT(MoverRuntimeBools), STRUCT_OFFSET(AMover,RecommendedTrigger)-sizeof(BITFIELD) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("RecommendedTrigger"), STRUCT_OFFSET(AMover,RecommendedTrigger) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("SimOldPos"), STRUCT_OFFSET(AMover,SimOldPos) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("SimOldRotPitch"), STRUCT_OFFSET(AMover,SimOldRotPitch) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("SimOldRotYaw"), STRUCT_OFFSET(AMover,SimOldRotYaw) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("SimOldRotRoll"), STRUCT_OFFSET(AMover,SimOldRotRoll) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("SimInterpolate"), STRUCT_OFFSET(AMover,SimInterpolate) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("RealPosition"), STRUCT_OFFSET(AMover,RealPosition) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("RealRotation"), STRUCT_OFFSET(AMover,RealRotation) );
+	FixupNativePropertyOffset( AMover::StaticClass(), TEXT("ClientUpdate"), STRUCT_OFFSET(AMover,ClientUpdate) );
+	debugf( NAME_Log, TEXT("UT99_ANDROID_V321_MOVER_OFFSET_FIX moveTime=%i keyPos=%i keyRot=%i basePos=%i savedTrigger=%i sim=%i"),
+		STRUCT_OFFSET(AMover,MoveTime),
+		STRUCT_OFFSET(AMover,KeyPos),
+		STRUCT_OFFSET(AMover,KeyRot),
+		STRUCT_OFFSET(AMover,BasePos),
+		STRUCT_OFFSET(AMover,SavedTrigger),
+		STRUCT_OFFSET(AMover,SimInterpolate) );
+	unguard;
+}
+
 static void FixupCriticalNativeOffsets()
 {
 #if defined(PLATFORM_64BIT)
@@ -886,6 +960,7 @@ static void FixupCriticalNativeOffsets()
 	FixupPawnOffsets();
 	FixupPlayerPawnOffsets();
 	FixupNavigationPointOffsets();
+	FixupMoverOffsets();
 	FixupNativePropertyOffset( AActor::StaticClass(), TEXT("Region"), STRUCT_OFFSET(AActor,Region) );
 	FixupPointRegionStruct();
 	static const TCHAR* ActorCoreBools[] =
@@ -2292,6 +2367,46 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 	static INT DrawTraceCount = 0;
 #if PLATFORM_ANDROID
 	DOUBLE AndroidDrawStart = appSeconds();
+	static DOUBLE AndroidFpsWindowStart = 0.0;
+	static DOUBLE AndroidLastDrawStart = 0.0;
+	static DOUBLE AndroidFpsAccumIntervalMs = 0.0;
+	static DOUBLE AndroidFpsMaxIntervalMs = 0.0;
+	static INT AndroidFpsTotalFrames = 0;
+	static DOUBLE AndroidDisplayedFps = 0.0;
+	static DOUBLE AndroidDisplayedFrameMs = 0.0;
+	static DOUBLE AndroidDisplayedMaxFrameMs = 0.0;
+	static INT AndroidFpsWindowFrames = 0;
+	if( AndroidFpsWindowStart <= 0.0 )
+		AndroidFpsWindowStart = AndroidDrawStart;
+	if( AndroidLastDrawStart > 0.0 )
+	{
+		const DOUBLE AndroidFrameIntervalMs = (AndroidDrawStart - AndroidLastDrawStart) * 1000.0;
+		AndroidFpsAccumIntervalMs += AndroidFrameIntervalMs;
+		AndroidFpsMaxIntervalMs = Max( AndroidFpsMaxIntervalMs, AndroidFrameIntervalMs );
+	}
+	AndroidLastDrawStart = AndroidDrawStart;
+	AndroidFpsWindowFrames++;
+	AndroidFpsTotalFrames++;
+	if( AndroidDrawStart - AndroidFpsWindowStart >= 1.0 )
+	{
+		const DOUBLE AndroidFpsWindowSeconds = AndroidDrawStart - AndroidFpsWindowStart;
+		const INT AndroidMeasuredIntervals = Max( AndroidFpsWindowFrames - 1, 0 );
+		AndroidDisplayedFrameMs = AndroidMeasuredIntervals > 0 ? AndroidFpsAccumIntervalMs / AndroidMeasuredIntervals : 0.0;
+		AndroidDisplayedFps = AndroidDisplayedFrameMs > 0.0 ? 1000.0 / AndroidDisplayedFrameMs : 0.0;
+		AndroidDisplayedMaxFrameMs = AndroidFpsMaxIntervalMs;
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V311_REAL_FPS realFps=%f framesThisSecond=%i intervals=%i avgFrameMs=%f maxFrameMs=%f windowSeconds=%f totalFrames=%i"),
+			AndroidDisplayedFps,
+			AndroidFpsWindowFrames,
+			AndroidMeasuredIntervals,
+			AndroidDisplayedFrameMs,
+			AndroidDisplayedMaxFrameMs,
+			AndroidFpsWindowSeconds,
+			AndroidFpsTotalFrames );
+		AndroidFpsWindowStart = AndroidDrawStart;
+		AndroidFpsWindowFrames = 0;
+		AndroidFpsAccumIntervalMs = 0.0;
+		AndroidFpsMaxIntervalMs = 0.0;
+	}
 	DOUBLE AndroidAfterLock = AndroidDrawStart;
 	DOUBLE AndroidWorldStart = AndroidDrawStart;
 	DOUBLE AndroidAfterWorld = AndroidDrawStart;
@@ -2305,6 +2420,14 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 	DOUBLE AndroidConsolePostMs = 0.0;
 	DOUBLE AndroidAudioPostMs = 0.0;
 	DOUBLE AndroidFinishMs = 0.0;
+	DOUBLE AndroidRenderPreMs = 0.0;
+	DOUBLE AndroidConsolePreMs = 0.0;
+	DOUBLE AndroidCanvasUpdateMs = 0.0;
+	DOUBLE AndroidCalcViewMs = 0.0;
+	DOUBLE AndroidPointCheckMs = 0.0;
+	DOUBLE AndroidFlashSetupMs = 0.0;
+	UBOOL AndroidNativeCalcView = 0;
+	UBOOL AndroidIsCityIntroDraw = 0;
 	static DOUBLE AndroidAccumLock = 0.0;
 	static DOUBLE AndroidAccumWorld = 0.0;
 	static DOUBLE AndroidAccumUnlock = 0.0;
@@ -2316,6 +2439,13 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 	static DOUBLE AndroidAccumConsolePost = 0.0;
 	static DOUBLE AndroidAccumAudioPost = 0.0;
 	static DOUBLE AndroidAccumFinish = 0.0;
+	static DOUBLE AndroidAccumRenderPre = 0.0;
+	static DOUBLE AndroidAccumConsolePre = 0.0;
+	static DOUBLE AndroidAccumCanvasUpdate = 0.0;
+	static DOUBLE AndroidAccumCalcView = 0.0;
+	static DOUBLE AndroidAccumPointCheck = 0.0;
+	static DOUBLE AndroidAccumFlashSetup = 0.0;
+	static INT AndroidAccumNativeCalcView = 0;
 	static DOUBLE AndroidAccumTotal = 0.0;
 	static DOUBLE AndroidMaxTotal = 0.0;
 	static INT AndroidTimingFrames = 0;
@@ -2343,30 +2473,33 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 	if
 	(	GLevel
 	&&	GLevel->GetOuter()
-	&&	appStricmp( GLevel->GetOuter()->GetName(), TEXT("CityIntro") ) == 0
-	&&	AndroidCalcViewTraceCount < 64 )
+	&&	appStricmp( GLevel->GetOuter()->GetName(), TEXT("CityIntro") ) == 0 )
 	{
-		AndroidCityIntroCameraTrace = 1;
-		APawn* AndroidPawn = Cast<APawn>(Viewport->Actor);
-		debugf( NAME_Log, TEXT("UT99_ANDROID_V258_CALCVIEW_BEFORE count=%i actor=%s loc=%f,%f,%f rot=%i,%i,%i viewrot=%i,%i,%i physics=%i target=%s targetRot=%i,%i,%i alpha=%f rate=%f"),
-			AndroidCalcViewTraceCount,
-			Viewport->Actor ? Viewport->Actor->GetFullName() : TEXT("None"),
-			ViewLocation.X,
-			ViewLocation.Y,
-			ViewLocation.Z,
-			ViewRotation.Pitch,
-			ViewRotation.Yaw,
-			ViewRotation.Roll,
-			AndroidPawn ? AndroidPawn->ViewRotation.Pitch : 0,
-			AndroidPawn ? AndroidPawn->ViewRotation.Yaw : 0,
-			AndroidPawn ? AndroidPawn->ViewRotation.Roll : 0,
-			Viewport->Actor ? Viewport->Actor->Physics : 0,
-			(Viewport->Actor && Viewport->Actor->Target) ? Viewport->Actor->Target->GetFullName() : TEXT("None"),
-			(Viewport->Actor && Viewport->Actor->Target) ? Viewport->Actor->Target->Rotation.Pitch : 0,
-			(Viewport->Actor && Viewport->Actor->Target) ? Viewport->Actor->Target->Rotation.Yaw : 0,
-			(Viewport->Actor && Viewport->Actor->Target) ? Viewport->Actor->Target->Rotation.Roll : 0,
-			Viewport->Actor ? Viewport->Actor->PhysAlpha : 0.0f,
-			Viewport->Actor ? Viewport->Actor->PhysRate : 0.0f );
+		AndroidIsCityIntroDraw = 1;
+		// if( AndroidCalcViewTraceCount < 64 )
+		// {
+		// 	AndroidCityIntroCameraTrace = 1;
+		// 	APawn* AndroidPawn = Cast<APawn>(Viewport->Actor);
+		// 	debugf( NAME_Log, TEXT("UT99_ANDROID_V258_CALCVIEW_BEFORE count=%i actor=%s loc=%f,%f,%f rot=%i,%i,%i viewrot=%i,%i,%i physics=%i target=%s targetRot=%i,%i,%i alpha=%f rate=%f"),
+		// 		AndroidCalcViewTraceCount,
+		// 		Viewport->Actor ? Viewport->Actor->GetFullName() : TEXT("None"),
+		// 		ViewLocation.X,
+		// 		ViewLocation.Y,
+		// 		ViewLocation.Z,
+		// 		ViewRotation.Pitch,
+		// 		ViewRotation.Yaw,
+		// 		ViewRotation.Roll,
+		// 		AndroidPawn ? AndroidPawn->ViewRotation.Pitch : 0,
+		// 		AndroidPawn ? AndroidPawn->ViewRotation.Yaw : 0,
+		// 		AndroidPawn ? AndroidPawn->ViewRotation.Roll : 0,
+		// 		Viewport->Actor ? Viewport->Actor->Physics : 0,
+		// 		(Viewport->Actor && Viewport->Actor->Target) ? Viewport->Actor->Target->GetFullName() : TEXT("None"),
+		// 		(Viewport->Actor && Viewport->Actor->Target) ? Viewport->Actor->Target->Rotation.Pitch : 0,
+		// 		(Viewport->Actor && Viewport->Actor->Target) ? Viewport->Actor->Target->Rotation.Yaw : 0,
+		// 		(Viewport->Actor && Viewport->Actor->Target) ? Viewport->Actor->Target->Rotation.Roll : 0,
+		// 		Viewport->Actor ? Viewport->Actor->PhysAlpha : 0.0f,
+		// 		Viewport->Actor ? Viewport->Actor->PhysRate : 0.0f );
+		// }
 	}
 #endif
 #if PLATFORM_ANDROID && UT99_ANDROID_FRAME_TRACE
@@ -2382,30 +2515,53 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 			ViewRotation.Roll,
 			Viewport->Actor ? Viewport->Actor->ViewTarget : NULL );
 #endif
-	Viewport->Actor->eventPlayerCalcView( ViewActor, ViewLocation, ViewRotation );
 #if PLATFORM_ANDROID
-	if( AndroidCityIntroCameraTrace )
+	DOUBLE AndroidCalcViewStart = appSeconds();
+	APlayerPawn* AndroidPlayerPawn = Cast<APlayerPawn>(Viewport->Actor);
+	if
+	(	AndroidIsCityIntroDraw
+	&&	AndroidPlayerPawn
+	&&	AndroidPlayerPawn->Physics == PHYS_Interpolating
+	&&	!AndroidPlayerPawn->ViewTarget
+	&&	!AndroidPlayerPawn->bBehindView
+	&&	!GAndroidFrontendMenuRequested )
 	{
-		APawn* AndroidPawn = Cast<APawn>(Viewport->Actor);
-		FVector AndroidDir = ViewRotation.Vector();
-		debugf( NAME_Log, TEXT("UT99_ANDROID_V258_CALCVIEW_AFTER count=%i viewActor=%s loc=%f,%f,%f rot=%i,%i,%i viewrot=%i,%i,%i dir=%f,%f,%f behind=%i"),
-			AndroidCalcViewTraceCount,
-			ViewActor ? ViewActor->GetFullName() : TEXT("None"),
-			ViewLocation.X,
-			ViewLocation.Y,
-			ViewLocation.Z,
-			ViewRotation.Pitch,
-			ViewRotation.Yaw,
-			ViewRotation.Roll,
-			AndroidPawn ? AndroidPawn->ViewRotation.Pitch : 0,
-			AndroidPawn ? AndroidPawn->ViewRotation.Yaw : 0,
-			AndroidPawn ? AndroidPawn->ViewRotation.Roll : 0,
-			AndroidDir.X,
-			AndroidDir.Y,
-			AndroidDir.Z,
-			Viewport->Actor ? Viewport->Actor->bBehindView : 0 );
+		AndroidNativeCalcView = 1;
+		ViewActor = AndroidPlayerPawn;
+		ViewLocation = AndroidPlayerPawn->Location;
+		ViewRotation = AndroidPlayerPawn->ViewRotation;
+		ViewLocation.Z += AndroidPlayerPawn->EyeHeight;
+		ViewLocation += AndroidPlayerPawn->WalkBob;
 	}
+	else
 #endif
+		Viewport->Actor->eventPlayerCalcView( ViewActor, ViewLocation, ViewRotation );
+#if PLATFORM_ANDROID
+	AndroidCalcViewMs = (appSeconds() - AndroidCalcViewStart) * 1000.0;
+#endif
+// #if PLATFORM_ANDROID
+// 	if( AndroidCityIntroCameraTrace )
+// 	{
+// 		APawn* AndroidPawn = Cast<APawn>(Viewport->Actor);
+// 		FVector AndroidDir = ViewRotation.Vector();
+// 		debugf( NAME_Log, TEXT("UT99_ANDROID_V258_CALCVIEW_AFTER count=%i viewActor=%s loc=%f,%f,%f rot=%i,%i,%i viewrot=%i,%i,%i dir=%f,%f,%f behind=%i"),
+// 			AndroidCalcViewTraceCount,
+// 			ViewActor ? ViewActor->GetFullName() : TEXT("None"),
+// 			ViewLocation.X,
+// 			ViewLocation.Y,
+// 			ViewLocation.Z,
+// 			ViewRotation.Pitch,
+// 			ViewRotation.Yaw,
+// 			ViewRotation.Roll,
+// 			AndroidPawn ? AndroidPawn->ViewRotation.Pitch : 0,
+// 			AndroidPawn ? AndroidPawn->ViewRotation.Yaw : 0,
+// 			AndroidPawn ? AndroidPawn->ViewRotation.Roll : 0,
+// 			AndroidDir.X,
+// 			AndroidDir.Y,
+// 			AndroidDir.Z,
+// 			Viewport->Actor ? Viewport->Actor->bBehindView : 0 );
+// 	}
+// #endif
 #if PLATFORM_ANDROID && UT99_ANDROID_FRAME_TRACE
 	if( AndroidCalcViewTraceCount < 24 || (AndroidCalcViewTraceCount % 120) == 0 )
 		debugf( NAME_Log, TEXT("UT99_ANDROID_V221_CALCVIEW_AFTER count=%i viewActor=%s loc=%f,%f,%f rot=%i,%i,%i"),
@@ -2464,8 +2620,14 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 	// See if viewer is inside world.
 	DWORD LockFlags=0;
 	FCheckResult Hit;
+#if PLATFORM_ANDROID
+	DOUBLE AndroidPointCheckStart = appSeconds();
+#endif
 	if( !GLevel->Model->PointCheck(Hit,NULL,ViewLocation,FVector(0,0,0),0) )
 		LockFlags |= LOCKR_ClearScreen;
+#if PLATFORM_ANDROID
+	AndroidPointCheckMs = (appSeconds() - AndroidPointCheckStart) * 1000.0;
+#endif
 
 #if defined(LEGEND) //MWP
 	if( Viewport->Actor->IsA( APlayerPawn::StaticClass() ) )
@@ -2491,6 +2653,9 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 
 	// Lock the Viewport.
 	check(Render);
+#if PLATFORM_ANDROID
+	DOUBLE AndroidFlashSetupStart = appSeconds();
+#endif
 	FPlane FlashScale = Client->ScreenFlashes ? 0.5*Viewport->Actor->FlashScale : FVector(0.5,0.5,0.5);
 	FPlane FlashFog   = Client->ScreenFlashes ? Viewport->Actor->FlashFog : FVector(0,0,0);
 	FlashScale.X = Clamp( FlashScale.X, 0.f, 1.f );
@@ -2499,6 +2664,9 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 	FlashFog.X   = Clamp( FlashFog.X  , 0.f, 1.f );
 	FlashFog.Y   = Clamp( FlashFog.Y  , 0.f, 1.f );
 	FlashFog.Z   = Clamp( FlashFog.Z  , 0.f, 1.f );
+#if PLATFORM_ANDROID
+	AndroidFlashSetupMs = (appSeconds() - AndroidFlashSetupStart) * 1000.0;
+#endif
 	if( DrawTraceCount < 5 )
 		debugf( NAME_Log, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE Draw begin count=%i Size=%ix%i Blit=%i LockFlags=0x%08X Actor=%s"), DrawTraceCount, Viewport->SizeX, Viewport->SizeY, Blit, LockFlags, ViewActor ? ViewActor->GetName() : TEXT("None") );
 	if( Viewport->Lock(FlashScale,FlashFog,FPlane(0,0,0,0),LockFlags,HitData,HitSize) )
@@ -2529,17 +2697,34 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 		DOUBLE AndroidPhaseStart = appSeconds();
 #endif
 		Render->PreRender( Frame );
+#if PLATFORM_ANDROID
+		AndroidRenderPreMs = (appSeconds() - AndroidPhaseStart) * 1000.0;
+		AndroidPhaseStart = appSeconds();
+#endif
 		Viewport->Canvas->Render = Render;
-		if( Viewport->Console )
+		if( Viewport->Console
+#if PLATFORM_ANDROID
+		&&	!(AndroidIsCityIntroDraw && !GAndroidFrontendMenuRequested)
+#endif
+		)
 			Viewport->Console->PreRender( Frame );
+#if PLATFORM_ANDROID
+		AndroidConsolePreMs = (appSeconds() - AndroidPhaseStart) * 1000.0;
+		AndroidPhaseStart = appSeconds();
+#endif
 		Viewport->Canvas->Update( Frame );
 #if PLATFORM_ANDROID
+		AndroidCanvasUpdateMs = (appSeconds() - AndroidPhaseStart) * 1000.0;
 		AndroidPreMs = (appSeconds() - AndroidPhaseStart) * 1000.0;
 		AndroidPhaseStart = appSeconds();
 #endif
-		Viewport->Actor->eventPreRender( Viewport->Canvas );
+#if PLATFORM_ANDROID
+		if( !(AndroidIsCityIntroDraw && Viewport->Actor && Viewport->Actor->Physics == PHYS_Interpolating && !GAndroidFrontendMenuRequested) )
+#endif
+			Viewport->Actor->eventPreRender( Viewport->Canvas );
 #if PLATFORM_ANDROID
 		AndroidActorPreMs = (appSeconds() - AndroidPhaseStart) * 1000.0;
+		AndroidPreMs += AndroidRenderPreMs + AndroidConsolePreMs;
 #endif
 		UBOOL bConsoleDrawWorld = !Viewport->Console || Viewport->Console->GetDrawWorld();
 #if PLATFORM_ANDROID && UT99_ANDROID_FRAME_TRACE
@@ -2704,6 +2889,19 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 			AndroidAudioPostMs = (appSeconds() - AndroidPhaseStart) * 1000.0;
 		}
 
+#if PLATFORM_ANDROID && UT99_ANDROID_SHOW_FPS_COUNTER
+		if( Viewport->Canvas && Viewport->Canvas->SmallFont && !GAndroidFrontendMenuRequested )
+		{
+			Viewport->Canvas->Color = FColor(255,255,255);
+			Viewport->Canvas->CurX = 4;
+			Viewport->Canvas->CurY = 4;
+			Viewport->Canvas->WrappedPrintf( Viewport->Canvas->SmallFont, 0, TEXT("FPS %.1f  %.1fms  max %.1fms"),
+				(FLOAT)AndroidDisplayedFps,
+				(FLOAT)AndroidDisplayedFrameMs,
+				(FLOAT)AndroidDisplayedMaxFrameMs );
+		}
+#endif
+
 #if 0
 /* BEGIN BETA VERSION */
 		if(GLevel && GLevel->GetLevelInfo() && GLevel->GetLevelInfo()->Game && FString(GLevel->GetLevelInfo()->Game->GetClass()->GetName()) == FString(TEXT("UTIntro")))
@@ -2764,6 +2962,13 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 		AndroidAccumConsolePost += AndroidConsolePostMs;
 		AndroidAccumAudioPost += AndroidAudioPostMs;
 		AndroidAccumFinish += AndroidFinishMs;
+		AndroidAccumRenderPre += AndroidRenderPreMs;
+		AndroidAccumConsolePre += AndroidConsolePreMs;
+		AndroidAccumCanvasUpdate += AndroidCanvasUpdateMs;
+		AndroidAccumCalcView += AndroidCalcViewMs;
+		AndroidAccumPointCheck += AndroidPointCheckMs;
+		AndroidAccumFlashSetup += AndroidFlashSetupMs;
+		AndroidAccumNativeCalcView += AndroidNativeCalcView ? 1 : 0;
 		AndroidAccumTotal += AndroidTotalMs;
 		AndroidMaxTotal = Max( AndroidMaxTotal, AndroidTotalMs );
 		AndroidTimingFrames++;
@@ -2786,9 +2991,27 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 				AndroidAccumFinish / AndroidTimingFrames,
 				Viewport->SizeX,
 				Viewport->SizeY );
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V298_DRAW_PRE_TIMING frames=%i avgRenderPreMs=%f avgConsolePreMs=%f avgCanvasUpdateMs=%f avgActorPreMs=%f cityIntro=%i frontend=%i"),
+				AndroidTimingFrames,
+				AndroidAccumRenderPre / AndroidTimingFrames,
+				AndroidAccumConsolePre / AndroidTimingFrames,
+				AndroidAccumCanvasUpdate / AndroidTimingFrames,
+				AndroidAccumActorPre / AndroidTimingFrames,
+				AndroidIsCityIntroDraw,
+				GAndroidFrontendMenuRequested );
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V301_DRAW_FRONT_TIMING frames=%i avgCalcViewMs=%f avgPointCheckMs=%f avgFlashSetupMs=%f nativeCalc=%i/%i"),
+				AndroidTimingFrames,
+				AndroidAccumCalcView / AndroidTimingFrames,
+				AndroidAccumPointCheck / AndroidTimingFrames,
+				AndroidAccumFlashSetup / AndroidTimingFrames,
+				AndroidAccumNativeCalcView,
+				AndroidTimingFrames );
 			AndroidAccumLock = AndroidAccumWorld = AndroidAccumUnlock = AndroidAccumTotal = AndroidMaxTotal = 0.0;
 			AndroidAccumAudio = AndroidAccumPre = AndroidAccumActorPre = AndroidAccumPost = 0.0;
 			AndroidAccumActorPost = AndroidAccumConsolePost = AndroidAccumAudioPost = AndroidAccumFinish = 0.0;
+			AndroidAccumRenderPre = AndroidAccumConsolePre = AndroidAccumCanvasUpdate = 0.0;
+			AndroidAccumCalcView = AndroidAccumPointCheck = AndroidAccumFlashSetup = 0.0;
+			AndroidAccumNativeCalcView = 0;
 			AndroidTimingFrames = 0;
 		}
 #endif
@@ -2893,6 +3116,28 @@ FLOAT UGameEngine::GetMaxTickRate()
 void UGameEngine::Tick( FLOAT DeltaSeconds )
 {
 	guard(UGameEngine::Tick);
+#if PLATFORM_ANDROID
+	const DOUBLE AndroidEngineTickStart = appSeconds();
+	DOUBLE AndroidAfterPause = AndroidEngineTickStart;
+	DOUBLE AndroidAfterStatic = AndroidEngineTickStart;
+	DOUBLE AndroidAfterLevel = AndroidEngineTickStart;
+	DOUBLE AndroidAfterTravel = AndroidEngineTickStart;
+	DOUBLE AndroidAfterPending = AndroidEngineTickStart;
+	DOUBLE AndroidAfterClient = AndroidEngineTickStart;
+	static DOUBLE AndroidTickWindowStart = 0.0;
+	static DOUBLE AndroidAccumPauseMs = 0.0;
+	static DOUBLE AndroidAccumStaticMs = 0.0;
+	static DOUBLE AndroidAccumLevelMs = 0.0;
+	static DOUBLE AndroidAccumTravelMs = 0.0;
+	static DOUBLE AndroidAccumPendingMs = 0.0;
+	static DOUBLE AndroidAccumClientMs = 0.0;
+	static DOUBLE AndroidAccumTotalMs = 0.0;
+	static DOUBLE AndroidMaxTotalMs = 0.0;
+	static DOUBLE AndroidAccumDeltaSeconds = 0.0;
+	static INT AndroidEngineTickFrames = 0;
+	if( AndroidTickWindowStart <= 0.0 )
+		AndroidTickWindowStart = AndroidEngineTickStart;
+#endif
 	INT LocalTickCycles=0;
 	clock(LocalTickCycles);
 
@@ -2923,10 +3168,16 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 		WasPaused = IsPaused;
 	}
 	else WasPaused=0;
+#if PLATFORM_ANDROID
+	AndroidAfterPause = appSeconds();
+#endif
 
 	// Update subsystems.
 	UObject::StaticTick();				
 	GCache.Tick();
+#if PLATFORM_ANDROID
+	AndroidAfterStatic = appSeconds();
+#endif
 
 	// Update the level.
 	guard(TickLevel);
@@ -2949,6 +3200,9 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 		Client->Viewports(0)->Actor->GetLevel()->Tick( LEVELTICK_All, DeltaSeconds );
 	unclock(GameCycles);
 	unguard;
+#if PLATFORM_ANDROID
+	AndroidAfterLevel = appSeconds();
+#endif
 
 	// Handle server travelling.
 	guard(ServerTravel);
@@ -3056,6 +3310,9 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 		return;
 	}
 	unguard;
+#if PLATFORM_ANDROID
+	AndroidAfterTravel = appSeconds();
+#endif
 
 	// Update the pending level.
 	guard(TickPending);
@@ -3105,6 +3362,9 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 		}
 	}
 	unguard;
+#if PLATFORM_ANDROID
+	AndroidAfterPending = appSeconds();
+#endif
 
 	// Render everything.
 	guard(ClientTick);
@@ -3117,6 +3377,41 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 	}
 	ClientCycles=LocalClientCycles;
 	unguard;
+#if PLATFORM_ANDROID
+	AndroidAfterClient = appSeconds();
+	AndroidAccumPauseMs += (AndroidAfterPause - AndroidEngineTickStart) * 1000.0;
+	AndroidAccumStaticMs += (AndroidAfterStatic - AndroidAfterPause) * 1000.0;
+	AndroidAccumLevelMs += (AndroidAfterLevel - AndroidAfterStatic) * 1000.0;
+	AndroidAccumTravelMs += (AndroidAfterTravel - AndroidAfterLevel) * 1000.0;
+	AndroidAccumPendingMs += (AndroidAfterPending - AndroidAfterTravel) * 1000.0;
+	AndroidAccumClientMs += (AndroidAfterClient - AndroidAfterPending) * 1000.0;
+	AndroidAccumTotalMs += (AndroidAfterClient - AndroidEngineTickStart) * 1000.0;
+	AndroidMaxTotalMs = Max( AndroidMaxTotalMs, (AndroidAfterClient - AndroidEngineTickStart) * 1000.0 );
+	AndroidAccumDeltaSeconds += DeltaSeconds;
+	AndroidEngineTickFrames++;
+	if( AndroidAfterClient - AndroidTickWindowStart >= 1.0 )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V304_ENGINE_TICK_TIMING frames=%i seconds=%f avgDeltaMs=%f avgTotalMs=%f maxTotalMs=%f avgPauseMs=%f avgStaticMs=%f avgLevelMs=%f avgTravelMs=%f avgPendingMs=%f avgClientMs=%f level=%s actors=%i"),
+			AndroidEngineTickFrames,
+			AndroidAfterClient - AndroidTickWindowStart,
+			AndroidEngineTickFrames ? (AndroidAccumDeltaSeconds * 1000.0) / AndroidEngineTickFrames : 0.0,
+			AndroidEngineTickFrames ? AndroidAccumTotalMs / AndroidEngineTickFrames : 0.0,
+			AndroidMaxTotalMs,
+			AndroidEngineTickFrames ? AndroidAccumPauseMs / AndroidEngineTickFrames : 0.0,
+			AndroidEngineTickFrames ? AndroidAccumStaticMs / AndroidEngineTickFrames : 0.0,
+			AndroidEngineTickFrames ? AndroidAccumLevelMs / AndroidEngineTickFrames : 0.0,
+			AndroidEngineTickFrames ? AndroidAccumTravelMs / AndroidEngineTickFrames : 0.0,
+			AndroidEngineTickFrames ? AndroidAccumPendingMs / AndroidEngineTickFrames : 0.0,
+			AndroidEngineTickFrames ? AndroidAccumClientMs / AndroidEngineTickFrames : 0.0,
+			GLevel && GLevel->GetOuter() ? GLevel->GetOuter()->GetName() : TEXT("None"),
+			GLevel ? GLevel->Actors.Num() : 0 );
+		AndroidTickWindowStart = AndroidAfterClient;
+		AndroidAccumPauseMs = AndroidAccumStaticMs = AndroidAccumLevelMs = AndroidAccumTravelMs = 0.0;
+		AndroidAccumPendingMs = AndroidAccumClientMs = AndroidAccumTotalMs = AndroidMaxTotalMs = 0.0;
+		AndroidAccumDeltaSeconds = 0.0;
+		AndroidEngineTickFrames = 0;
+	}
+#endif
 
 	unclock(LocalTickCycles);
 	TickCycles=LocalTickCycles;

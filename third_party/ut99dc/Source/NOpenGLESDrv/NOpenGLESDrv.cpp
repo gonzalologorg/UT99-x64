@@ -9,6 +9,9 @@
 #ifndef UT99_ANDROID_GLES_TRACE
 #define UT99_ANDROID_GLES_TRACE 0
 #endif
+#ifndef UT99_ANDROID_KEEP_AUX_TEXTURES_BOUND
+#define UT99_ANDROID_KEEP_AUX_TEXTURES_BOUND 1
+#endif
 extern INT GAndroidSDLDrawableX;
 extern INT GAndroidSDLDrawableY;
 #endif
@@ -101,7 +104,7 @@ UNOpenGLESRenderDevice::UNOpenGLESRenderDevice()
 	NoFiltering = false;
 	UseVAO = false;
 #if PLATFORM_ANDROID
-	UseVAO = true;
+	UseVAO = false;
 #endif
 	UseBGRA = true;
 	CurrentBrightness = -1.f;
@@ -402,6 +405,18 @@ void UNOpenGLESRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo
 {
 	guard(UNOpenGLESRenderDevice::DrawComplexSurface);
 	GAndroidGLESSurfaceCount++;
+#if PLATFORM_ANDROID
+	const DOUBLE AndroidComplexStart = appSeconds();
+	DOUBLE AndroidComplexTex0Ms = 0.0;
+	DOUBLE AndroidComplexLightMs = 0.0;
+	DOUBLE AndroidComplexFogMs = 0.0;
+	DOUBLE AndroidComplexDetailMs = 0.0;
+	DOUBLE AndroidComplexShaderMs = 0.0;
+	DOUBLE AndroidComplexPolyMs = 0.0;
+	DOUBLE AndroidComplexResetMs = 0.0;
+	INT AndroidComplexPolys = 0;
+	INT AndroidComplexVerts = 0;
+#endif
 
 	check(Surface.Texture);
 // #if PLATFORM_ANDROID
@@ -429,7 +444,13 @@ void UNOpenGLESRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo
 // 		Surface.Texture->Format,
 // 		Surface.Texture->Palette );
 // #endif
+#if PLATFORM_ANDROID
+	DOUBLE AndroidPhaseStart = appSeconds();
+#endif
 	SetTexture( 0, *Surface.Texture, ( Surface.PolyFlags & PF_Masked ), 0.f );
+#if PLATFORM_ANDROID
+	AndroidComplexTex0Ms = (appSeconds() - AndroidPhaseStart) * 1000.0;
+#endif
 // #if PLATFORM_ANDROID
 // 	debugf( NAME_Log, TEXT("UT99_ANDROID_V199_DRAWCOMPLEX stage=after_tex0 surface=%i"), GAndroidGLESSurfaceCount );
 // #endif
@@ -446,26 +467,51 @@ void UNOpenGLESRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo
 // #if PLATFORM_ANDROID
 // 		debugf( NAME_Log, TEXT("UT99_ANDROID_V199_DRAWCOMPLEX stage=before_light surface=%i"), GAndroidGLESSurfaceCount );
 // #endif
+#if PLATFORM_ANDROID
+		AndroidPhaseStart = appSeconds();
+#endif
 		SetTexture( 1, *Surface.LightMap, 0, -0.5f );
 		CurrentShaderFlags |= SF_Lightmap;
+#if PLATFORM_ANDROID
+		AndroidComplexLightMs = (appSeconds() - AndroidPhaseStart) * 1000.0;
+#endif
 	}
 	if( Surface.FogMap )
 	{
+#if PLATFORM_ANDROID
+		AndroidPhaseStart = appSeconds();
+#endif
 		SetTexture( 2, *Surface.FogMap, 0, -0.5f );
 		CurrentShaderFlags |= SF_Fogmap;
+#if PLATFORM_ANDROID
+		AndroidComplexFogMs = (appSeconds() - AndroidPhaseStart) * 1000.0;
+#endif
 	}
 	if( Surface.DetailTexture && DetailTextures )
 	{
 // #if PLATFORM_ANDROID
 // 		debugf( NAME_Log, TEXT("UT99_ANDROID_V199_DRAWCOMPLEX stage=before_detail surface=%i"), GAndroidGLESSurfaceCount );
 // #endif
+#if PLATFORM_ANDROID
+		AndroidPhaseStart = appSeconds();
+#endif
 		SetTexture( 3, *Surface.DetailTexture, 0, 0.f );
 		CurrentShaderFlags |= SF_Detail;
+#if PLATFORM_ANDROID
+		AndroidComplexDetailMs = (appSeconds() - AndroidPhaseStart) * 1000.0;
+#endif
 	}
 // #if PLATFORM_ANDROID
 // 	debugf( NAME_Log, TEXT("UT99_ANDROID_V199_DRAWCOMPLEX stage=before_shader surface=%i flags=0x%08x"), GAndroidGLESSurfaceCount, CurrentShaderFlags );
 // #endif
+#if PLATFORM_ANDROID
+	AndroidPhaseStart = appSeconds();
+#endif
 	SetShader( CurrentShaderFlags );
+#if PLATFORM_ANDROID
+	AndroidComplexShaderMs = (appSeconds() - AndroidPhaseStart) * 1000.0;
+	AndroidPhaseStart = appSeconds();
+#endif
 // #if PLATFORM_ANDROID
 // 	debugf( NAME_Log, TEXT("UT99_ANDROID_V199_DRAWCOMPLEX stage=after_shader surface=%i"), GAndroidGLESSurfaceCount );
 // #endif
@@ -474,6 +520,10 @@ void UNOpenGLESRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo
 	FLOAT VDot = Facet.MapCoords.YAxis | Facet.MapCoords.Origin;
 	for( FSavedPoly* Poly = Facet.Polys; Poly; Poly = Poly->Next )
 	{
+#if PLATFORM_ANDROID
+		AndroidComplexPolys++;
+		AndroidComplexVerts += Poly->NumPts;
+#endif
 #if PLATFORM_ANDROID
 		// debugf( NAME_Log, TEXT("UT99_ANDROID_V199_DRAWCOMPLEX stage=poly surface=%i node=%i pts=%i"), GAndroidGLESSurfaceCount, Poly->iNode, Poly->NumPts );
 		static INT AndroidPolyCoordLogs = 0;
@@ -509,15 +559,88 @@ void UNOpenGLESRenderDevice::DrawComplexSurface( FSceneNode* Frame, FSurfaceInfo
 		}
 		EndPoly();
 	}
+#if PLATFORM_ANDROID
+	AndroidComplexPolyMs = (appSeconds() - AndroidPhaseStart) * 1000.0;
+#endif
 // #if PLATFORM_ANDROID
 // 	debugf( NAME_Log, TEXT("UT99_ANDROID_V199_DRAWCOMPLEX stage=end surface=%i"), GAndroidGLESSurfaceCount );
 // #endif
 
-	CurrentShaderFlags &= ~( SF_Lightmap|SF_Fogmap|SF_Detail );
+	CurrentShaderFlags &= ~( SF_Texture1|SF_Texture2|SF_Texture3|SF_Lightmap|SF_Fogmap|SF_Detail );
 
+#if PLATFORM_ANDROID
+	AndroidPhaseStart = appSeconds();
+#endif
+#if PLATFORM_ANDROID && UT99_ANDROID_KEEP_AUX_TEXTURES_BOUND
+	// Keep auxiliary texture units bound across BSP surfaces. The shader flags above
+	// decide whether they are sampled; unbinding here forced a tiny flush per surface.
+#else
 	ResetTexture( 1 );
 	ResetTexture( 2 );
 	ResetTexture( 3 );
+#endif
+#if PLATFORM_ANDROID
+	AndroidComplexResetMs = (appSeconds() - AndroidPhaseStart) * 1000.0;
+	static INT AndroidComplexFrames = 0;
+	static INT AndroidComplexSurfaces = 0;
+	static INT AndroidComplexLightSurfaces = 0;
+	static INT AndroidComplexDetailSurfaces = 0;
+	static INT AndroidComplexPolysAccum = 0;
+	static INT AndroidComplexVertsAccum = 0;
+	static DOUBLE AndroidComplexTotalAccum = 0.0;
+	static DOUBLE AndroidComplexTex0Accum = 0.0;
+	static DOUBLE AndroidComplexLightAccum = 0.0;
+	static DOUBLE AndroidComplexFogAccum = 0.0;
+	static DOUBLE AndroidComplexDetailAccum = 0.0;
+	static DOUBLE AndroidComplexShaderAccum = 0.0;
+	static DOUBLE AndroidComplexPolyAccum = 0.0;
+	static DOUBLE AndroidComplexResetAccum = 0.0;
+	AndroidComplexSurfaces++;
+	AndroidComplexLightSurfaces += Surface.LightMap ? 1 : 0;
+	AndroidComplexDetailSurfaces += (Surface.DetailTexture && DetailTextures) ? 1 : 0;
+	AndroidComplexPolysAccum += AndroidComplexPolys;
+	AndroidComplexVertsAccum += AndroidComplexVerts;
+	AndroidComplexTotalAccum += (appSeconds() - AndroidComplexStart) * 1000.0;
+	AndroidComplexTex0Accum += AndroidComplexTex0Ms;
+	AndroidComplexLightAccum += AndroidComplexLightMs;
+	AndroidComplexFogAccum += AndroidComplexFogMs;
+	AndroidComplexDetailAccum += AndroidComplexDetailMs;
+	AndroidComplexShaderAccum += AndroidComplexShaderMs;
+	AndroidComplexPolyAccum += AndroidComplexPolyMs;
+	AndroidComplexResetAccum += AndroidComplexResetMs;
+	if( GAndroidGLESFrameCounter != AndroidComplexFrames && GAndroidGLESFrameCounter > 0 && (GAndroidGLESFrameCounter % 60) == 0 )
+	{
+		AndroidComplexFrames = GAndroidGLESFrameCounter;
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V292_GLES_COMPLEX_TIMING frame=%i surfaces=%i lightSurfaces=%i detailSurfaces=%i avgTotalMs=%f avgTex0Ms=%f avgLightMs=%f avgFogMs=%f avgDetailMs=%f avgShaderMs=%f avgPolyMs=%f avgResetMs=%f avgPolys=%f avgVerts=%f"),
+			GAndroidGLESFrameCounter,
+			AndroidComplexSurfaces,
+			AndroidComplexLightSurfaces,
+			AndroidComplexDetailSurfaces,
+			AndroidComplexSurfaces ? AndroidComplexTotalAccum / AndroidComplexSurfaces : 0.0,
+			AndroidComplexSurfaces ? AndroidComplexTex0Accum / AndroidComplexSurfaces : 0.0,
+			AndroidComplexSurfaces ? AndroidComplexLightAccum / AndroidComplexSurfaces : 0.0,
+			AndroidComplexSurfaces ? AndroidComplexFogAccum / AndroidComplexSurfaces : 0.0,
+			AndroidComplexSurfaces ? AndroidComplexDetailAccum / AndroidComplexSurfaces : 0.0,
+			AndroidComplexSurfaces ? AndroidComplexShaderAccum / AndroidComplexSurfaces : 0.0,
+			AndroidComplexSurfaces ? AndroidComplexPolyAccum / AndroidComplexSurfaces : 0.0,
+			AndroidComplexSurfaces ? AndroidComplexResetAccum / AndroidComplexSurfaces : 0.0,
+			AndroidComplexSurfaces ? (FLOAT)AndroidComplexPolysAccum / AndroidComplexSurfaces : 0.0f,
+			AndroidComplexSurfaces ? (FLOAT)AndroidComplexVertsAccum / AndroidComplexSurfaces : 0.0f );
+		AndroidComplexSurfaces = 0;
+		AndroidComplexLightSurfaces = 0;
+		AndroidComplexDetailSurfaces = 0;
+		AndroidComplexPolysAccum = 0;
+		AndroidComplexVertsAccum = 0;
+		AndroidComplexTotalAccum = 0.0;
+		AndroidComplexTex0Accum = 0.0;
+		AndroidComplexLightAccum = 0.0;
+		AndroidComplexFogAccum = 0.0;
+		AndroidComplexDetailAccum = 0.0;
+		AndroidComplexShaderAccum = 0.0;
+		AndroidComplexPolyAccum = 0.0;
+		AndroidComplexResetAccum = 0.0;
+	}
+#endif
 
 	unguard;
 }

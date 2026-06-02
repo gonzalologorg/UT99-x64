@@ -261,7 +261,10 @@ UBOOL UNSDLViewport::GetOutputSize( INT& OutX, INT& OutY )
 
 	if( GLCtx )
 	{
-		SDL_GL_MakeCurrent( hWnd, GLCtx );
+#if PLATFORM_ANDROID
+		if( SDL_GL_GetCurrentContext() != GLCtx || SDL_GL_GetCurrentWindow() != hWnd )
+#endif
+			SDL_GL_MakeCurrent( hWnd, GLCtx );
 		SDL_GL_GetDrawableSize( hWnd, &OutX, &OutY );
 	}
 	if( (OutX <= 0 || OutY <= 0) && SDLRen )
@@ -633,7 +636,39 @@ UBOOL UNSDLViewport::Lock( FPlane FlashScale, FPlane FlashFog, FPlane ScreenClea
 	}
 
 	INT OutputX = 0, OutputY = 0;
+#if PLATFORM_ANDROID
+	static INT AndroidCachedOutputX = 0;
+	static INT AndroidCachedOutputY = 0;
+	static INT AndroidOutputSizeFrame = 0;
+	static DOUBLE AndroidAccumOutputSizeMs = 0.0;
+	static DOUBLE AndroidAccumViewportLockMs = 0.0;
+	static DOUBLE AndroidAccumRenderLockMs = 0.0;
+	static INT AndroidViewportLockTimingFrames = 0;
+	const DOUBLE AndroidViewportLockStart = appSeconds();
+	DOUBLE AndroidAfterOutputSize = AndroidViewportLockStart;
+	UBOOL AndroidRefreshOutputSize = (AndroidCachedOutputX <= 0 || AndroidCachedOutputY <= 0 || AndroidOutputSizeFrame < 5 || (AndroidOutputSizeFrame % 60) == 0);
+	UBOOL AndroidHaveOutputSize = 0;
+	if( AndroidRefreshOutputSize )
+	{
+		AndroidHaveOutputSize = GetOutputSize( OutputX, OutputY );
+		if( AndroidHaveOutputSize )
+		{
+			AndroidCachedOutputX = OutputX;
+			AndroidCachedOutputY = OutputY;
+		}
+	}
+	else
+	{
+		OutputX = AndroidCachedOutputX;
+		OutputY = AndroidCachedOutputY;
+		AndroidHaveOutputSize = 1;
+	}
+	AndroidOutputSizeFrame++;
+	AndroidAfterOutputSize = appSeconds();
+	if( AndroidHaveOutputSize )
+#else
 	if( GetOutputSize( OutputX, OutputY ) )
+#endif
 	{
 #if PLATFORM_ANDROID
 		GAndroidSDLDrawableX = OutputX;
@@ -687,7 +722,33 @@ UBOOL UNSDLViewport::Lock( FPlane FlashScale, FPlane FlashFog, FPlane ScreenClea
 	// Success.
 	unclock(Client->DrawCycles);
 
+#if PLATFORM_ANDROID
+	const DOUBLE AndroidBeforeRenderLock = appSeconds();
+	UBOOL AndroidLockResult = UViewport::Lock( FlashScale, FlashFog, ScreenClear, RenderLockFlags, HitData, HitSize );
+	const DOUBLE AndroidAfterRenderLock = appSeconds();
+	AndroidAccumOutputSizeMs += (AndroidAfterOutputSize - AndroidViewportLockStart) * 1000.0;
+	AndroidAccumRenderLockMs += (AndroidAfterRenderLock - AndroidBeforeRenderLock) * 1000.0;
+	AndroidAccumViewportLockMs += (AndroidAfterRenderLock - AndroidViewportLockStart) * 1000.0;
+	AndroidViewportLockTimingFrames++;
+	if( AndroidViewportLockTimingFrames >= 60 )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V300_VIEWPORT_LOCK_TIMING frames=%i avgTotalMs=%f avgOutputSizeMs=%f avgRenderLockMs=%f cached=%i output=%ix%i internal=%ix%i"),
+			AndroidViewportLockTimingFrames,
+			AndroidAccumViewportLockMs / AndroidViewportLockTimingFrames,
+			AndroidAccumOutputSizeMs / AndroidViewportLockTimingFrames,
+			AndroidAccumRenderLockMs / AndroidViewportLockTimingFrames,
+			AndroidRefreshOutputSize ? 0 : 1,
+			AndroidCachedOutputX,
+			AndroidCachedOutputY,
+			SizeX,
+			SizeY );
+		AndroidAccumOutputSizeMs = AndroidAccumViewportLockMs = AndroidAccumRenderLockMs = 0.0;
+		AndroidViewportLockTimingFrames = 0;
+	}
+	return AndroidLockResult;
+#else
 	return UViewport::Lock( FlashScale, FlashFog, ScreenClear, RenderLockFlags, HitData, HitSize );
+#endif
 
 	unguard;
 }

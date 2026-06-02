@@ -24,6 +24,12 @@ FLOAT Splerp( FLOAT F )
 }
 
 #if PLATFORM_ANDROID
+static inline UBOOL AndroidIsCityIntroLevel( ULevel* Level )
+{
+	return Level && Level->GetOuter()
+	&&	appStricmp( Level->GetOuter()->GetName(), TEXT("CityIntro") ) == 0;
+}
+
 static inline INT AndroidUnwrapRotComponent( INT Base, INT Value )
 {
 	while( Value - Base > 32768 )
@@ -42,6 +48,267 @@ static inline FRotator AndroidUnwrapRotatorNear( const FRotator& Base, const FRo
 		AndroidUnwrapRotComponent( Base.Roll,  Value.Roll  )
 	);
 }
+
+static FLOAT AndroidDistanceSquared2DToSegment( const FVector& Point, const FVector& A, const FVector& B, FVector& Closest )
+{
+	const FVector AB = B - A;
+	const FLOAT LenSq = AB.SizeSquared2D();
+	FLOAT T = 0.0f;
+	if( LenSq > 1.0f )
+		T = Clamp( ((Point.X-A.X)*AB.X + (Point.Y-A.Y)*AB.Y) / LenSq, 0.0f, 1.0f );
+	Closest = A + (B-A) * T;
+	return Square(Point.X-Closest.X) + Square(Point.Y-Closest.Y);
+}
+
+static inline UBOOL AndroidValidMoverVector( const FVector& V )
+{
+	return !appIsNan(V.X) && !appIsNan(V.Y) && !appIsNan(V.Z)
+	&&	Abs(V.X)<1000000.0f
+	&&	Abs(V.Y)<1000000.0f
+	&&	Abs(V.Z)<1000000.0f;
+}
+
+static void AndroidCityIntroDispatchTriggerEvent( ATrigger* Trigger, AActor* Other )
+{
+	guardSlow(AndroidCityIntroDispatchTriggerEvent);
+	if( !Trigger || !Other || Trigger->Event==NAME_None || !AndroidIsCityIntroLevel( Trigger->GetLevel() ) )
+		return;
+
+	APawn* EventInstigator = Cast<APawn>( Other );
+	if( EventInstigator )
+		Other->Instigator = EventInstigator;
+	else
+		EventInstigator = Other->Instigator;
+
+	ULevel* Level = Trigger->GetLevel();
+	INT Recipients = 0;
+	static INT AndroidDispatchLogs = 0;
+	for( INT iActor=0; iActor<Level->Actors.Num(); iActor++ )
+	{
+		AActor* Target = Level->Actors(iActor);
+		if( !Target || Target->bDeleteMe || Target==Trigger || Target->Tag!=Trigger->Event )
+			continue;
+
+		if( AndroidDispatchLogs < 128 )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V317_CITYINTRO_TRIGGER_DISPATCH count=%i trigger=%s event=%s target=%s class=%s state=%s physics=%i drawType=%i hidden=%i other=%s instigator=%s"),
+				AndroidDispatchLogs,
+				Trigger->GetFullName(),
+				*Trigger->Event,
+				Target->GetFullName(),
+				Target->GetClass() ? Target->GetClass()->GetName() : TEXT("None"),
+				Target->GetStateFrame() && Target->GetStateFrame()->StateNode ? Target->GetStateFrame()->StateNode->GetName() : TEXT("None"),
+				Target->Physics,
+				Target->DrawType,
+				Target->bHidden,
+				Other->GetFullName(),
+				EventInstigator ? EventInstigator->GetFullName() : TEXT("None") );
+			AndroidDispatchLogs++;
+		}
+		Target->eventTrigger( Other, EventInstigator );
+		if( AMover* Mover = Cast<AMover>( Target ) )
+		{
+			if( !Mover->bInterpolating && !Mover->bDeleteMe && AndroidIsCityIntroLevel( Mover->GetLevel() ) )
+			{
+				const BYTE OldKeyNum = Mover->KeyNum;
+				const BYTE NewKeyNum = Clamp<INT>( 1, 0, ARRAY_COUNT(Mover->KeyPos)-1 );
+				const FVector TargetLocation = Mover->BasePos + Mover->KeyPos[NewKeyNum];
+				if( !AndroidValidMoverVector(Mover->BasePos) || !AndroidValidMoverVector(Mover->KeyPos[NewKeyNum]) || !AndroidValidMoverVector(TargetLocation) )
+				{
+					static INT AndroidBadMoverLogs = 0;
+					if( AndroidBadMoverLogs < 64 )
+					{
+							debugf( NAME_Log, TEXT("UT99_ANDROID_V322_CITYINTRO_BAD_MOVER_KEY count=%i mover=%p event=%s key=%i prev=%i numKeys=%i moveTime=%f base=%f,%f,%f key=%f,%f,%f target=%f,%f,%f"),
+							AndroidBadMoverLogs,
+							Mover,
+							*Trigger->Event,
+							Mover->KeyNum,
+							Mover->PrevKeyNum,
+							Mover->NumKeys,
+							Mover->MoveTime,
+							Mover->BasePos.X,
+							Mover->BasePos.Y,
+							Mover->BasePos.Z,
+							Mover->KeyPos[NewKeyNum].X,
+							Mover->KeyPos[NewKeyNum].Y,
+							Mover->KeyPos[NewKeyNum].Z,
+							TargetLocation.X,
+							TargetLocation.Y,
+							TargetLocation.Z );
+						AndroidBadMoverLogs++;
+					}
+					continue;
+				}
+				Mover->OldPos = Mover->Location;
+				Mover->OldRot = Mover->Rotation;
+				Mover->PhysAlpha = 0.0f;
+				Mover->setPhysics( PHYS_MovingBrush );
+				Mover->bInterpolating = 1;
+				Mover->PrevKeyNum = OldKeyNum;
+				Mover->KeyNum = NewKeyNum;
+				const FLOAT AndroidMoveTime = Mover->MoveTime > 0.005f ? Mover->MoveTime : 1.0f;
+				Mover->PhysRate = 1.0f / AndroidMoveTime;
+				Mover->SavedTrigger = Other;
+				Mover->Instigator = EventInstigator;
+				Mover->bOpening = 1;
+				Mover->bDelaying = 0;
+				Mover->ClientUpdate++;
+				Mover->SimOldPos = Mover->OldPos;
+				Mover->SimOldRotYaw = Mover->OldRot.Yaw;
+				Mover->SimOldRotPitch = Mover->OldRot.Pitch;
+				Mover->SimOldRotRoll = Mover->OldRot.Roll;
+				Mover->SimInterpolate.X = 100.0f * Mover->PhysAlpha;
+				Mover->SimInterpolate.Y = 100.0f * Max( 0.01f, Mover->PhysRate );
+				Mover->SimInterpolate.Z = 256 * Mover->PrevKeyNum + Mover->KeyNum;
+				static INT AndroidMoverFallbackLogs = 0;
+				if( AndroidMoverFallbackLogs < 64 )
+				{
+					debugf( NAME_Log, TEXT("UT99_ANDROID_V320_CITYINTRO_MOVER_TRIGGER_FALLBACK count=%i mover=%p event=%s oldKey=%i newKey=%i numKeys=%i moveTime=%f usedTime=%f rate=%f loc=%f,%f,%f target=%f,%f,%f"),
+						AndroidMoverFallbackLogs,
+						Mover,
+						*Trigger->Event,
+						OldKeyNum,
+						Mover->KeyNum,
+						Mover->NumKeys,
+						Mover->MoveTime,
+						AndroidMoveTime,
+						Mover->PhysRate,
+						Mover->Location.X,
+						Mover->Location.Y,
+						Mover->Location.Z,
+						TargetLocation.X,
+						TargetLocation.Y,
+						TargetLocation.Z );
+					AndroidMoverFallbackLogs++;
+				}
+			}
+		}
+		Recipients++;
+	}
+	if( AndroidDispatchLogs < 128 )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V317_CITYINTRO_TRIGGER_DISPATCH count=%i trigger=%s event=%s recipients=%i instigator=%s"),
+			AndroidDispatchLogs,
+			Trigger->GetFullName(),
+			*Trigger->Event,
+			Recipients,
+			EventInstigator ? EventInstigator->GetFullName() : TEXT("None") );
+		AndroidDispatchLogs++;
+	}
+	unguardSlow;
+}
+
+static void AndroidCityIntroTouchPathTriggers( AActor* CameraActor, const FVector& OldLocation, const FVector& NewLocation )
+{
+	guardSlow(AndroidCityIntroTouchPathTriggers);
+	if( !CameraActor || !AndroidIsCityIntroLevel( CameraActor->GetLevel() ) || !CameraActor->IsA(APlayerPawn::StaticClass()) )
+		return;
+
+	static TArray<AActor*> TouchedTriggers;
+	static ULevel* TouchedLevel = NULL;
+	ULevel* Level = CameraActor->GetLevel();
+	if( TouchedLevel != Level )
+	{
+		TouchedTriggers.Empty();
+		TouchedLevel = Level;
+	}
+
+	INT Scanned = 0;
+	INT Active = 0;
+	INT Proximity = 0;
+	INT HitCount = 0;
+	FLOAT BestDistSq = 1.0e30f;
+	FLOAT BestZ = 1.0e30f;
+	ATrigger* BestTrigger = NULL;
+	for( INT iActor=0; iActor<Level->Actors.Num(); iActor++ )
+	{
+		ATrigger* Trigger = Cast<ATrigger>( Level->Actors(iActor) );
+		if( !Trigger || Trigger->bDeleteMe )
+			continue;
+		Scanned++;
+		if( !Trigger->bInitiallyActive || Trigger->TriggerType==TT_Shoot )
+			continue;
+		Active++;
+
+		INT FoundIndex = INDEX_NONE;
+		if( TouchedTriggers.FindItem( Trigger, FoundIndex ) )
+			continue;
+
+		const FLOAT Radius = Max( Trigger->CollisionRadius + CameraActor->CollisionRadius + 32.0f, 32.0f );
+		const FLOAT Height = Max( Trigger->CollisionHeight + CameraActor->CollisionHeight + 32.0f, 32.0f );
+		FVector Closest;
+		const FLOAT DistSq = AndroidDistanceSquared2DToSegment( Trigger->Location, OldLocation, NewLocation, Closest );
+		const FLOAT ZDist = Abs( Trigger->Location.Z - Closest.Z );
+		if( DistSq < BestDistSq )
+		{
+			BestDistSq = DistSq;
+			BestZ = ZDist;
+			BestTrigger = Trigger;
+		}
+		if( ZDist <= Height && DistSq <= Square(Radius) )
+		{
+			Proximity++;
+			if( TouchedTriggers.Num() < 128 )
+				TouchedTriggers.AddItem( Trigger );
+			if( APawn* CameraPawn = Cast<APawn>( CameraActor ) )
+				CameraActor->Instigator = CameraPawn;
+			static INT AndroidTriggerTouchLogs = 0;
+			if( AndroidTriggerTouchLogs < 96 )
+			{
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V315_CITYINTRO_TRIGGER_TOUCH count=%i trigger=%s event=%s type=%i once=%i active=%i collide=%i loc=%f,%f,%f old=%f,%f,%f new=%f,%f,%f closest=%f,%f,%f dist=%f z=%f radius=%f height=%f instigator=%s"),
+					AndroidTriggerTouchLogs,
+					Trigger->GetFullName(),
+					*Trigger->Event,
+					Trigger->TriggerType,
+					Trigger->bTriggerOnceOnly,
+					Trigger->bInitiallyActive,
+					Trigger->bCollideActors,
+					Trigger->Location.X,
+					Trigger->Location.Y,
+					Trigger->Location.Z,
+					OldLocation.X,
+					OldLocation.Y,
+					OldLocation.Z,
+					NewLocation.X,
+					NewLocation.Y,
+					NewLocation.Z,
+					Closest.X,
+					Closest.Y,
+					Closest.Z,
+					appSqrt(DistSq),
+					ZDist,
+					Radius,
+					Height,
+					CameraActor->Instigator ? CameraActor->Instigator->GetFullName() : TEXT("None") );
+				AndroidTriggerTouchLogs++;
+			}
+			HitCount++;
+			Trigger->BeginTouch( CameraActor );
+			AndroidCityIntroDispatchTriggerEvent( Trigger, CameraActor );
+		}
+	}
+	static INT AndroidTriggerScanLogs = 0;
+	if( AndroidTriggerScanLogs < 64 && (HitCount || (AndroidTriggerScanLogs % 8)==0) )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V316_CITYINTRO_TRIGGER_SCAN count=%i scanned=%i active=%i proximity=%i touched=%i best=%s bestDist=%f bestZ=%f old=%f,%f,%f new=%f,%f,%f"),
+			AndroidTriggerScanLogs,
+			Scanned,
+			Active,
+			Proximity,
+			HitCount,
+			BestTrigger ? BestTrigger->GetFullName() : TEXT("None"),
+			BestTrigger ? appSqrt(BestDistSq) : -1.0f,
+			BestTrigger ? BestZ : -1.0f,
+			OldLocation.X,
+			OldLocation.Y,
+			OldLocation.Z,
+			NewLocation.X,
+			NewLocation.Y,
+			NewLocation.Z );
+		AndroidTriggerScanLogs++;
+	}
+	unguardSlow;
+}
 #endif
 
 //
@@ -50,12 +317,29 @@ static inline FRotator AndroidUnwrapRotatorNear( const FRotator& Base, const FRo
 void AActor::physPathing( FLOAT DeltaTime )
 {
 	guard(AActor::physPathing);
+#if PLATFORM_ANDROID
+	const DOUBLE AndroidPathStart = appSeconds();
+	DOUBLE AndroidPathLast = AndroidPathStart;
+	DOUBLE AndroidPathSetupMs = 0.0;
+	DOUBLE AndroidPathInterpMs = 0.0;
+	DOUBLE AndroidPathMoveMs = 0.0;
+	DOUBLE AndroidPathEventMs = 0.0;
+	INT AndroidPathIterations = 0;
+	AInterpolationPoint* AndroidPathLastDest = NULL;
+#define UT99_ANDROID_PATH_PHASE_MS(Target) do { DOUBLE AndroidNow = appSeconds(); Target += (AndroidNow - AndroidPathLast) * 1000.0; AndroidPathLast = AndroidNow; } while(0)
+#endif
 
 	// Linear interpolate from Target to Target.Next.
 	while( PhysRate!=0.0 && bInterpolating && DeltaTime>0.0 )
 	{
+#if PLATFORM_ANDROID
+		AndroidPathIterations++;
+#endif
 		// Find destination interpolation point, if any.
 		AInterpolationPoint* Dest = Cast<AInterpolationPoint>( Target );
+#if PLATFORM_ANDROID
+		AndroidPathLastDest = Dest;
+#endif
 
 		// Compute rate modifier.
 		FLOAT RateModifier = 1.0;
@@ -72,6 +356,9 @@ void AActor::physPathing( FLOAT DeltaTime )
 			((APlayerPawn*)this)->FlashFog   = ((APlayerPawn*)this)->DesiredFlashFog   = (Dest->ScreenFlashFog   * (1.0 - PhysAlpha) + Dest->Next->ScreenFlashFog   * PhysAlpha);
 			((APlayerPawn*)this)->FovAngle                                             = (Dest->FovModifier      * (1.0 - PhysAlpha) + Dest->Next->FovModifier      * PhysAlpha) * ((APlayerPawn*)GetClass()->GetDefaultObject())->FovAngle;
 		}
+#if PLATFORM_ANDROID
+		UT99_ANDROID_PATH_PHASE_MS(AndroidPathSetupMs);
+#endif
 
 		// Update alpha.
 		FLOAT OldAlpha  = PhysAlpha;
@@ -118,6 +405,44 @@ void AActor::physPathing( FLOAT DeltaTime )
 #endif
 			}
 #if PLATFORM_ANDROID
+			UT99_ANDROID_PATH_PHASE_MS(AndroidPathInterpMs);
+			if
+			(	AndroidIsCityIntroLevel( GetLevel() )
+			&&	IsA(APlayerPawn::StaticClass())
+			&&	Physics == PHYS_Interpolating )
+			{
+				static INT AndroidFastPathMoveLogs = 0;
+				const FVector AndroidOldLocation = Location;
+				Location = NewLocation;
+				OldLocation = NewLocation;
+				Rotation = NewRotation;
+				if( GetLevel() && GetLevel()->Model )
+					Region = GetLevel()->Model->PointRegion( GetLevel()->GetLevelInfo(), Location );
+				AndroidCityIntroTouchPathTriggers( this, AndroidOldLocation, NewLocation );
+				if( AndroidFastPathMoveLogs < 8 )
+				{
+					debugf( NAME_Log, TEXT("UT99_ANDROID_V310_FAST_INTERP_CAMERA_MOVE actor=%s loc=%f,%f,%f rot=%i,%i,%i target=%s alpha=%f"),
+						GetFullName(),
+						Location.X,
+						Location.Y,
+						Location.Z,
+						Rotation.Pitch,
+						Rotation.Yaw,
+						Rotation.Roll,
+						Dest ? Dest->GetFullName() : TEXT("None"),
+						PhysAlpha );
+					AndroidFastPathMoveLogs++;
+				}
+			}
+			else
+#endif
+			{
+				GetLevel()->MoveActor( this, NewLocation - Location, NewRotation, Hit );
+			}
+#if PLATFORM_ANDROID
+			UT99_ANDROID_PATH_PHASE_MS(AndroidPathMoveMs);
+#endif
+#if PLATFORM_ANDROID
 			static INT AndroidInterpRotLogs = 0;
 			if
 			(	AndroidInterpRotLogs < 32
@@ -142,7 +467,6 @@ void AActor::physPathing( FLOAT DeltaTime )
 				AndroidInterpRotLogs++;
 			}
 #endif
-			GetLevel()->MoveActor( this, NewLocation - Location, NewRotation, Hit );
 			if( IsA(APawn::StaticClass()) )
 				((APawn*)this)->ViewRotation = Rotation;
 		}
@@ -156,6 +480,9 @@ void AActor::physPathing( FLOAT DeltaTime )
 			{
 				Target->eventInterpolateEnd(this);
 				eventInterpolateEnd(Target);
+#if PLATFORM_ANDROID
+				UT99_ANDROID_PATH_PHASE_MS(AndroidPathEventMs);
+#endif
 				if( Dest )
 				{
 					do
@@ -174,6 +501,9 @@ void AActor::physPathing( FLOAT DeltaTime )
 			{
 				Target->eventInterpolateEnd(this);
 				eventInterpolateEnd(Target);
+#if PLATFORM_ANDROID
+				UT99_ANDROID_PATH_PHASE_MS(AndroidPathEventMs);
+#endif
 				if( Dest )
 				{
 					do
@@ -184,9 +514,38 @@ void AActor::physPathing( FLOAT DeltaTime )
 				}
 			}
 			eventInterpolateEnd(NULL);
+#if PLATFORM_ANDROID
+			UT99_ANDROID_PATH_PHASE_MS(AndroidPathEventMs);
+#endif
 		}
 		else DeltaTime=0.0;
 	};
+#if PLATFORM_ANDROID
+	const DOUBLE AndroidPathTotalMs = (appSeconds() - AndroidPathStart) * 1000.0;
+	if( AndroidPathTotalMs > 10.0 && AndroidIsCityIntroLevel( GetLevel() ) )
+	{
+		static INT AndroidSlowPathLogs = 0;
+		if( AndroidSlowPathLogs < 64 || (AndroidSlowPathLogs % 120) == 0 )
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V312_SLOW_PHYSPATHING count=%i ms=%f actor=%s target=%s iter=%i delta=%f alpha=%f rate=%f setup=%f interp=%f move=%f events=%f loc=%f,%f,%f"),
+				AndroidSlowPathLogs,
+				AndroidPathTotalMs,
+				GetFullName(),
+				AndroidPathLastDest ? AndroidPathLastDest->GetFullName() : TEXT("None"),
+				AndroidPathIterations,
+				DeltaTime,
+				PhysAlpha,
+				PhysRate,
+				AndroidPathSetupMs,
+				AndroidPathInterpMs,
+				AndroidPathMoveMs,
+				AndroidPathEventMs,
+				Location.X,
+				Location.Y,
+				Location.Z );
+		AndroidSlowPathLogs++;
+	}
+#undef UT99_ANDROID_PATH_PHASE_MS
+#endif
 	unguard;
 }
 
@@ -200,6 +559,35 @@ void AActor::physMovingBrush( FLOAT DeltaTime )
 	{
 		AMover* Mover  = (AMover*)this;
 		INT KeyNum     = Clamp( (INT)Mover->KeyNum, (INT)0, (INT)ARRAY_COUNT(Mover->KeyPos) );
+#if PLATFORM_ANDROID
+		static INT AndroidMoverPhysLogs = 0;
+		if( AndroidMoverPhysLogs < 96 && AndroidIsCityIntroLevel( GetLevel() ) && Mover->bInterpolating )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V319_CITYINTRO_MOVER_PHYS count=%i mover=%s state=%s delta=%f physics=%i key=%i prev=%i alpha=%f rate=%f interp=%i opening=%i delaying=%i loc=%f,%f,%f old=%f,%f,%f keyTarget=%f,%f,%f"),
+				AndroidMoverPhysLogs,
+				Mover->GetFullName(),
+				Mover->GetStateFrame() && Mover->GetStateFrame()->StateNode ? Mover->GetStateFrame()->StateNode->GetName() : TEXT("None"),
+				DeltaTime,
+				Mover->Physics,
+				Mover->KeyNum,
+				Mover->PrevKeyNum,
+				Mover->PhysAlpha,
+				Mover->PhysRate,
+				Mover->bInterpolating,
+				Mover->bOpening,
+				Mover->bDelaying,
+				Mover->Location.X,
+				Mover->Location.Y,
+				Mover->Location.Z,
+				Mover->OldPos.X,
+				Mover->OldPos.Y,
+				Mover->OldPos.Z,
+				Mover->BasePos.X + Mover->KeyPos[KeyNum].X,
+				Mover->BasePos.Y + Mover->KeyPos[KeyNum].Y,
+				Mover->BasePos.Z + Mover->KeyPos[KeyNum].Z );
+			AndroidMoverPhysLogs++;
+		}
+#endif
 		while( Mover->bInterpolating && DeltaTime>0.0 )
 		{
 			// We are moving.

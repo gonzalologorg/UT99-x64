@@ -22,6 +22,12 @@
 #ifndef UT99_ANDROID_CITYINTRO_SKIP_BSP_LIGHTING
 #define UT99_ANDROID_CITYINTRO_SKIP_BSP_LIGHTING 0
 #endif
+#ifndef UT99_ANDROID_CITYINTRO_SKIP_OVERLAY
+#define UT99_ANDROID_CITYINTRO_SKIP_OVERLAY 0
+#endif
+extern INT GAndroidDynamicChunkFilterCalls;
+extern INT GAndroidDynamicFinalChunks;
+extern DOUBLE GAndroidDynamicChunkFilterMs;
 #endif
 
 /*-----------------------------------------------------------------------------
@@ -2228,31 +2234,31 @@ void URender::OccludeBsp( FSceneNode* Frame )
 	ActiveZoneMask		= ((QWORD)1) << iViewZone;
 #if PLATFORM_ANDROID
 	static INT AndroidOccludeInitTraceCount = 0;
-	AZoneInfo* AndroidRegionZone = Viewport->Actor->Region.Zone;
-	if( AndroidOccludeInitTraceCount < 32 || (AndroidOccludeInitTraceCount % 120) == 0 )
-		debugf( NAME_Log, TEXT("UT99_ANDROID_V226_OCCLUDE_INIT stage=mask count=%i viewZone=%i activeMask=0x%08x%08x regionZone=%p"),
-			AndroidOccludeInitTraceCount,
-			iViewZone,
-			(DWORD)(ActiveZoneMask >> 32),
-			(DWORD)ActiveZoneMask,
-			AndroidRegionZone );
-	if( !ValidateDrawWorldObject( AndroidRegionZone, TEXT("Viewport.Actor.Region.Zone") ) || (AndroidRegionZone && !AndroidRegionZone->IsA(AZoneInfo::StaticClass())) )
-	{
-		debugf( NAME_Warning, TEXT("UT99_ANDROID_V226_BAD_REGION_ZONE actor=%s regionZone=%p fallbackZone=%p viewZone=%i"),
-			Viewport->Actor ? Viewport->Actor->GetFullName() : TEXT("None"),
-			AndroidRegionZone,
-			Model->Zones[iViewZone].ZoneActor,
-			iViewZone );
-		AndroidRegionZone = Frame->Level->GetZoneActor(iViewZone);
-	}
-	IsVolumetric        = RenDev->VolumetricLighting && RenDev->SupportsFogMaps && AndroidRegionZone && AndroidRegionZone->bFogZone;
-	if( AndroidOccludeInitTraceCount < 32 || (AndroidOccludeInitTraceCount % 120) == 0 )
-		debugf( NAME_Log, TEXT("UT99_ANDROID_V226_OCCLUDE_INIT stage=volumetric count=%i isVolumetric=%i volLighting=%i fogMaps=%i zone=%p"),
-			AndroidOccludeInitTraceCount,
-			IsVolumetric,
-			RenDev->VolumetricLighting,
-			RenDev->SupportsFogMaps,
-			AndroidRegionZone );
+	// AZoneInfo* AndroidRegionZone = Viewport->Actor->Region.Zone;
+	// if( AndroidOccludeInitTraceCount < 32 || (AndroidOccludeInitTraceCount % 120) == 0 )
+	// 	debugf( NAME_Log, TEXT("UT99_ANDROID_V226_OCCLUDE_INIT stage=mask count=%i viewZone=%i activeMask=0x%08x%08x regionZone=%p"),
+	// 		AndroidOccludeInitTraceCount,
+	// 		iViewZone,
+	// 		(DWORD)(ActiveZoneMask >> 32),
+	// 		(DWORD)ActiveZoneMask,
+	// 		AndroidRegionZone );
+	// if( !ValidateDrawWorldObject( AndroidRegionZone, TEXT("Viewport.Actor.Region.Zone") ) || (AndroidRegionZone && !AndroidRegionZone->IsA(AZoneInfo::StaticClass())) )
+	// {
+	// 	debugf( NAME_Warning, TEXT("UT99_ANDROID_V226_BAD_REGION_ZONE actor=%s regionZone=%p fallbackZone=%p viewZone=%i"),
+	// 		Viewport->Actor ? Viewport->Actor->GetFullName() : TEXT("None"),
+	// 		AndroidRegionZone,
+	// 		Model->Zones[iViewZone].ZoneActor,
+	// 		iViewZone );
+	// 	AndroidRegionZone = Frame->Level->GetZoneActor(iViewZone);
+	// }
+	// IsVolumetric        = RenDev->VolumetricLighting && RenDev->SupportsFogMaps && AndroidRegionZone && AndroidRegionZone->bFogZone;
+	// if( AndroidOccludeInitTraceCount < 32 || (AndroidOccludeInitTraceCount % 120) == 0 )
+	// 	debugf( NAME_Log, TEXT("UT99_ANDROID_V226_OCCLUDE_INIT stage=volumetric count=%i isVolumetric=%i volLighting=%i fogMaps=%i zone=%p"),
+	// 		AndroidOccludeInitTraceCount,
+	// 		IsVolumetric,
+	// 		RenDev->VolumetricLighting,
+	// 		RenDev->SupportsFogMaps,
+	// 		AndroidRegionZone );
 	AndroidOccludeInitTraceCount++;
 #else
 	IsVolumetric        = RenDev->VolumetricLighting && RenDev->SupportsFogMaps && Viewport->Actor->Region.Zone->bFogZone;
@@ -3010,6 +3016,44 @@ struct FCoronaLight
 	FLOAT   Bright;
 };
 #define MAX_CORONA_LIGHTS 32
+#if PLATFORM_ANDROID
+static inline UBOOL AndroidRenderIsCityIntro( FSceneNode* Frame )
+{
+	return Frame
+	&&	Frame->Level
+	&&	Frame->Level->GetOuter()
+	&&	appStricmp( Frame->Level->GetOuter()->GetName(), TEXT("CityIntro") ) == 0;
+}
+
+static inline void AndroidForceCityIntroOptics( FSceneNode* Frame, const TCHAR* Context )
+{
+	if( !AndroidRenderIsCityIntro(Frame) || !Frame->Viewport )
+		return;
+	static INT AndroidOpticsForceLogs = 0;
+	UViewport* Viewport = Frame->Viewport;
+	UBOOL ForcedCoronas = 0;
+	UBOOL ForcedDynamicLights = 0;
+	if( Viewport->RenDev && !Viewport->RenDev->Coronas )
+	{
+		Viewport->RenDev->Coronas = 1;
+		ForcedCoronas = 1;
+	}
+	if( Viewport->GetOuterUClient() && Viewport->GetOuterUClient()->NoDynamicLights )
+	{
+		Viewport->GetOuterUClient()->NoDynamicLights = 0;
+		ForcedDynamicLights = 1;
+	}
+	if( (ForcedCoronas || ForcedDynamicLights) && AndroidOpticsForceLogs < 16 )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V323_CITYINTRO_FORCE_OPTICS context=%s coronas=%i noDynamicLights=%i"),
+			Context,
+			Viewport->RenDev ? Viewport->RenDev->Coronas : -1,
+			Viewport->GetOuterUClient() ? Viewport->GetOuterUClient()->NoDynamicLights : -1 );
+		AndroidOpticsForceLogs++;
+	}
+}
+#endif
+
 static void GAddCorona( FSceneNode* Frame, FCoronaLight* CoronaLights, INT& iFree, AActor* Light, FLOAT Delta )
 {
 	FCheckResult Hit;
@@ -3051,6 +3095,9 @@ void URender::OccludeFrame( FSceneNode* Frame )
 	ULevel*    Level    = Frame->Level;
 	UModel*	   Model    = Level->Model;
 	check(Model->Nodes.Num()>0);
+#if PLATFORM_ANDROID
+	AndroidForceCityIntroOptics( Frame, TEXT("OccludeFrame") );
+#endif
 
 	// Init rendering info.
 	if( SurfLights==NULL || Level->Model->Surfs.Num()>MaxSurfLights )
@@ -3125,6 +3172,9 @@ void URender::DrawFrame( FSceneNode* Frame )
 	UViewport* Viewport = Frame->Viewport;
 	UModel*	   Model    = Frame->Level->Model;
 	check(Model->Nodes.Num()>0);
+#if PLATFORM_ANDROID
+	AndroidForceCityIntroOptics( Frame, TEXT("DrawFrame") );
+#endif
 	//FLOAT LodBias = appTan( Frame->Viewport->Actor->FovAngle*(PI/360.f) );
 
 	// First, draw children.
@@ -3589,6 +3639,12 @@ void URender::DrawFrame( FSceneNode* Frame )
 	}
 
 	// Optics.
+#if PLATFORM_ANDROID
+	static INT AndroidCoronaFrameCount = 0;
+	UBOOL AndroidCoronaTrace = AndroidRenderIsCityIntro(Frame) && Frame->Recursion==0 && ((AndroidCoronaFrameCount++ % 120)==0);
+	INT AndroidCoronaCached = 0;
+	INT AndroidCoronaDrawn = 0;
+#endif
 	if
 	(	Viewport->Actor->Region.iLeaf!=INDEX_NONE
 	&&	Viewport->Actor->Region.Zone 
@@ -3627,6 +3683,10 @@ void URender::DrawFrame( FSceneNode* Frame )
 		for( i=0; i<MAX_CORONA_LIGHTS; i++ )
 		{
 			AActor* Light = CoronaLights[i]._Actor;
+#if PLATFORM_ANDROID
+			if( Light )
+				AndroidCoronaCached++;
+#endif
 			if
 			(	Light
 			&&	CoronaLights[i].iActor<=Viewport->Actor->GetLevel()->Actors.Num()
@@ -3683,11 +3743,26 @@ void URender::DrawFrame( FSceneNode* Frame )
 					}*/
 					Viewport->Canvas->DrawIcon( Light->Skin, X-Scale/2, Y-Scale/2, Scale, Scale, NULL, 1.0, CoronaLights[i].Bright * Color, FPlane(0,0,0,0), PF_TwoSided | PF_Translucent );
 #endif
+#if PLATFORM_ANDROID
+					AndroidCoronaDrawn++;
+#endif
 				}
 			}
 		}
 		Item->Unlock();
 	}
+#if PLATFORM_ANDROID
+	if( AndroidCoronaTrace )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V324_CITYINTRO_CORONA_STATE leaf=%i zone=%p coronas=%i recursion=%i cached=%i drawn=%i"),
+			Viewport->Actor ? Viewport->Actor->Region.iLeaf : INDEX_NONE,
+			(Viewport->Actor && Viewport->Actor->Region.Zone) ? Viewport->Actor->Region.Zone : NULL,
+			Viewport->RenDev ? Viewport->RenDev->Coronas : 0,
+			Frame->Recursion,
+			AndroidCoronaCached,
+			AndroidCoronaDrawn );
+	}
+#endif
 
 	// Sky cleanup.
 	if( Cast<ASkyZoneInfo>(Frame->Level->Model->Zones[Frame->ZoneNumber].ZoneActor) )
@@ -3893,8 +3968,36 @@ void URender::DrawWorld( FSceneNode* Frame )
 #endif
 
 		// Occlude and render all scene frames.
+#if PLATFORM_ANDROID
+		const INT AndroidFilterCallsBefore = GAndroidDynamicChunkFilterCalls;
+		const INT AndroidFinalChunksBefore = GAndroidDynamicFinalChunks;
+		const DOUBLE AndroidFilterMsBefore = GAndroidDynamicChunkFilterMs;
+#endif
 		OccludeFrame( Frame );
 #if PLATFORM_ANDROID
+		const INT AndroidFrameFilterCalls = GAndroidDynamicChunkFilterCalls - AndroidFilterCallsBefore;
+		const INT AndroidFrameFinalChunks = GAndroidDynamicFinalChunks - AndroidFinalChunksBefore;
+		const DOUBLE AndroidFrameFilterMs = GAndroidDynamicChunkFilterMs - AndroidFilterMsBefore;
+		static INT AndroidOccludeFilterFrames = 0;
+		static INT AndroidOccludeFilterCallAccum = 0;
+		static INT AndroidOccludeFinalChunkAccum = 0;
+		static DOUBLE AndroidOccludeFilterMsAccum = 0.0;
+		AndroidOccludeFilterFrames++;
+		AndroidOccludeFilterCallAccum += AndroidFrameFilterCalls;
+		AndroidOccludeFinalChunkAccum += AndroidFrameFinalChunks;
+		AndroidOccludeFilterMsAccum += AndroidFrameFilterMs;
+		if( AndroidOccludeFilterFrames >= 60 )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V291_OCCLUDE_FILTER_TIMING frames=%i avgFilterCalls=%f avgFinalChunks=%f avgFilterMs=%f"),
+				AndroidOccludeFilterFrames,
+				(FLOAT)AndroidOccludeFilterCallAccum / AndroidOccludeFilterFrames,
+				(FLOAT)AndroidOccludeFinalChunkAccum / AndroidOccludeFilterFrames,
+				AndroidOccludeFilterMsAccum / AndroidOccludeFilterFrames );
+			AndroidOccludeFilterFrames = 0;
+			AndroidOccludeFilterCallAccum = 0;
+			AndroidOccludeFinalChunkAccum = 0;
+			AndroidOccludeFilterMsAccum = 0.0;
+		}
 		AndroidOccludeMs += (appSeconds() - AndroidPhaseStart) * 1000.0;
 		AndroidPhaseStart = appSeconds();
 #endif
@@ -3917,7 +4020,7 @@ void URender::DrawWorld( FSceneNode* Frame )
 	&&	Actor
 	&&	(Frame->Viewport->Actor->ShowFlags & SHOW_Actors) )
 	{
-#if PLATFORM_ANDROID
+#if PLATFORM_ANDROID && UT99_ANDROID_CITYINTRO_SKIP_OVERLAY
 		UBOOL AndroidSkipCityIntroOverlay = 0;
 		if
 		(	Frame->Viewport

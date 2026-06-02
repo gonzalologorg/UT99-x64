@@ -205,15 +205,47 @@ static void MainLoop( UEngine* Engine )
 	DOUBLE OldTime = appSeconds();
 	DOUBLE SecondStartTime = OldTime;
 	INT TickCount = 0;
+#if PLATFORM_ANDROID
+	DOUBLE AndroidLoopWindowStart = OldTime;
+	DOUBLE AndroidLoopLastStart = OldTime;
+	DOUBLE AndroidLoopAccumIntervalMs = 0.0;
+	DOUBLE AndroidLoopMaxIntervalMs = 0.0;
+	DOUBLE AndroidLoopAccumEngineMs = 0.0;
+	DOUBLE AndroidLoopAccumWindowMs = 0.0;
+	DOUBLE AndroidLoopAccumSleepMs = 0.0;
+	DOUBLE AndroidLoopMaxEngineMs = 0.0;
+	DOUBLE AndroidLoopLastMaxRate = 0.0;
+	INT AndroidLoopFrames = 0;
+#endif
 	while( GIsRunning && !GIsRequestingExit )
 	{
 		// Update the world.
 		guard(UpdateWorld);
 		DOUBLE NewTime   = appSeconds();
+#if PLATFORM_ANDROID
+		const DOUBLE AndroidLoopStart = NewTime;
+		if( AndroidLoopLastStart > 0.0 )
+		{
+			const DOUBLE AndroidLoopIntervalMs = (AndroidLoopStart - AndroidLoopLastStart) * 1000.0;
+			AndroidLoopAccumIntervalMs += AndroidLoopIntervalMs;
+			AndroidLoopMaxIntervalMs = Max( AndroidLoopMaxIntervalMs, AndroidLoopIntervalMs );
+		}
+		AndroidLoopLastStart = AndroidLoopStart;
+#endif
 		FLOAT  DeltaTime = NewTime - OldTime;
+		DOUBLE AndroidBeforeEngine = appSeconds();
 		Engine->Tick( DeltaTime );
+		DOUBLE AndroidAfterEngine = appSeconds();
 		if( GWindowManager )
 			GWindowManager->Tick( DeltaTime );
+		DOUBLE AndroidAfterWindow = appSeconds();
+#if PLATFORM_ANDROID
+		const DOUBLE AndroidEngineMs = (AndroidAfterEngine - AndroidBeforeEngine) * 1000.0;
+		AndroidLoopAccumEngineMs += AndroidEngineMs;
+		AndroidLoopMaxEngineMs = Max( AndroidLoopMaxEngineMs, AndroidEngineMs );
+		AndroidLoopAccumWindowMs += (AndroidAfterWindow - AndroidAfterEngine) * 1000.0;
+		AndroidLoopFrames++;
+#endif
 		OldTime = NewTime;
 		TickCount++;
 		if( OldTime > SecondStartTime + 1 )
@@ -227,11 +259,38 @@ static void MainLoop( UEngine* Engine )
 		// Enforce optional maximum tick rate.
 		guard(EnforceTickRate);
 		FLOAT MaxTickRate = Engine->GetMaxTickRate();
+#if PLATFORM_ANDROID
+		AndroidLoopLastMaxRate = MaxTickRate;
+		DOUBLE AndroidSleepStart = appSeconds();
+#endif
 		if( MaxTickRate>0.0 )
 		{
 			FLOAT Delta = (1.0/MaxTickRate) - (appSeconds()-OldTime);
 			appSleep( Max(0.f,Delta) );
 		}
+#if PLATFORM_ANDROID
+		AndroidLoopAccumSleepMs += (appSeconds() - AndroidSleepStart) * 1000.0;
+		if( appSeconds() - AndroidLoopWindowStart >= 1.0 )
+		{
+			const DOUBLE AndroidWindowSeconds = appSeconds() - AndroidLoopWindowStart;
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V303_MAINLOOP_TIMING frames=%i seconds=%f fps=%f avgIntervalMs=%f maxIntervalMs=%f avgEngineMs=%f maxEngineMs=%f avgWindowMs=%f avgSleepMs=%f maxTickRate=%f"),
+				AndroidLoopFrames,
+				AndroidWindowSeconds,
+				AndroidLoopFrames / AndroidWindowSeconds,
+				AndroidLoopFrames > 1 ? AndroidLoopAccumIntervalMs / (AndroidLoopFrames - 1) : 0.0,
+				AndroidLoopMaxIntervalMs,
+				AndroidLoopFrames ? AndroidLoopAccumEngineMs / AndroidLoopFrames : 0.0,
+				AndroidLoopMaxEngineMs,
+				AndroidLoopFrames ? AndroidLoopAccumWindowMs / AndroidLoopFrames : 0.0,
+				AndroidLoopFrames ? AndroidLoopAccumSleepMs / AndroidLoopFrames : 0.0,
+				AndroidLoopLastMaxRate );
+			AndroidLoopWindowStart = appSeconds();
+			AndroidLoopAccumIntervalMs = AndroidLoopMaxIntervalMs = 0.0;
+			AndroidLoopAccumEngineMs = AndroidLoopAccumWindowMs = AndroidLoopAccumSleepMs = 0.0;
+			AndroidLoopMaxEngineMs = 0.0;
+			AndroidLoopFrames = 0;
+		}
+#endif
 		unguard;
 	}
 	GIsRunning = 0;

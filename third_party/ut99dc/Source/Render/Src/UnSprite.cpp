@@ -15,6 +15,90 @@
 #ifndef UT99_ANDROID_CITYINTRO_SKIP_DYNAMICS
 #define UT99_ANDROID_CITYINTRO_SKIP_DYNAMICS 0
 #endif
+#ifndef UT99_ANDROID_CITYINTRO_FAST_DYNAMICS
+#define UT99_ANDROID_CITYINTRO_FAST_DYNAMICS 0
+#endif
+#ifndef UT99_ANDROID_CITYINTRO_DIRECT_IMPORTANT_MESHES
+#define UT99_ANDROID_CITYINTRO_DIRECT_IMPORTANT_MESHES 1
+#endif
+#endif
+
+#if PLATFORM_ANDROID
+INT GAndroidDynamicChunkFilterCalls = 0;
+INT GAndroidDynamicFinalChunks = 0;
+DOUBLE GAndroidDynamicChunkFilterMs = 0.0;
+
+static UBOOL IsKnownRenderObject( UObject* Object );
+
+static UBOOL AndroidIsImportantMeshActor( AActor* Actor )
+{
+	guardSlow(AndroidIsImportantMeshActor);
+	if( !Actor )
+		return 0;
+	const TCHAR* ActorName = Actor->GetFullName();
+	return
+	(	appStrstr( ActorName, TEXT("Intro") )
+	||	appStrstr( ActorName, TEXT("Fighter") )
+	||	appStrstr( ActorName, TEXT("fighter") )
+	||	appStrstr( ActorName, TEXT("ArenaCam") )
+	||	appStrstr( ActorName, TEXT("TMale") ) );
+	unguardSlow;
+}
+
+static void AndroidLogMeshSetup( const TCHAR* Stage, AActor* Actor, FSceneNode* Frame, FLOAT Z, const FScreenBounds* Bounds )
+{
+	guardSlow(AndroidLogMeshSetup);
+	static INT AndroidMeshSetupLogs = 0;
+	const TCHAR* ActorName = Actor ? Actor->GetFullName() : TEXT("None");
+	UBOOL ImportantActor = AndroidIsImportantMeshActor( Actor );
+	// if( ImportantActor || AndroidMeshSetupLogs < 160 || (AndroidMeshSetupLogs % 240) == 0 )
+	// {
+	// 	debugf( NAME_Log, TEXT("UT99_ANDROID_V294_MESH_SETUP stage=%s count=%i actor=%s drawType=%i hidden=%i mesh=%p meshName=%s loc=%f,%f,%f z=%f bounds=%f,%f,%f,%f frame=%ix%i zone=%p"),
+	// 		Stage,
+	// 		AndroidMeshSetupLogs,
+	// 		ActorName,
+	// 		Actor ? Actor->DrawType : -1,
+	// 		Actor ? Actor->bHidden : -1,
+	// 		Actor ? Actor->Mesh : NULL,
+	// 		(Actor && Actor->Mesh && IsKnownRenderObject(Actor->Mesh)) ? Actor->Mesh->GetFullName() : TEXT("None"),
+	// 		Actor ? Actor->Location.X : 0.f,
+	// 		Actor ? Actor->Location.Y : 0.f,
+	// 		Actor ? Actor->Location.Z : 0.f,
+	// 		Z,
+	// 		Bounds ? Bounds->MinX : 0.f,
+	// 		Bounds ? Bounds->MinY : 0.f,
+	// 		Bounds ? Bounds->MaxX : 0.f,
+	// 		Bounds ? Bounds->MaxY : 0.f,
+	// 		Frame ? Frame->X : -1,
+	// 		Frame ? Frame->Y : -1,
+	// 		Actor ? Actor->Region.Zone : NULL );
+	// }
+	AndroidMeshSetupLogs++;
+	unguardSlow;
+}
+
+static void AndroidLogDynamicMeshStage( const TCHAR* Stage, AActor* Actor, INT iNode, INT IsBack, FRasterPoly* Raster, FSpanBuffer* SpanBuffer )
+{
+	guardSlow(AndroidLogDynamicMeshStage);
+	if( !AndroidIsImportantMeshActor( Actor ) )
+		return;
+	static INT AndroidDynamicMeshStageLogs = 0;
+	// debugf( NAME_Log, TEXT("UT99_ANDROID_V296_DYNAMIC_MESH_STAGE stage=%s count=%i actor=%s drawType=%i mesh=%s node=%i back=%i raster=%p rasterY=%i,%i span=%p spanY=%i,%i"),
+	// 	Stage,
+	// 	AndroidDynamicMeshStageLogs++,
+	// 	Actor ? Actor->GetFullName() : TEXT("None"),
+	// 	Actor ? Actor->DrawType : -1,
+	// 	(Actor && Actor->Mesh && IsKnownRenderObject(Actor->Mesh)) ? Actor->Mesh->GetFullName() : TEXT("None"),
+	// 	iNode,
+	// 	IsBack,
+	// 	Raster,
+	// 	Raster ? Raster->StartY : -1,
+	// 	Raster ? Raster->EndY : -1,
+	// 	SpanBuffer,
+	// 	SpanBuffer ? SpanBuffer->StartY : -1,
+	// 	SpanBuffer ? SpanBuffer->EndY : -1 );
+	unguardSlow;
+}
 #endif
 
 static UBOOL IsKnownRenderObject( UObject* Object )
@@ -22,9 +106,28 @@ static UBOOL IsKnownRenderObject( UObject* Object )
 	guardSlow(IsKnownRenderObject);
 	if( !Object )
 		return 1;
+#if PLATFORM_ANDROID
+	static TArray<UObject*> KnownObjects;
+	static TArray<UObject*> BadObjects;
+	INT FoundIndex;
+	if( KnownObjects.FindItem( Object, FoundIndex ) )
+		return 1;
+	if( BadObjects.FindItem( Object, FoundIndex ) )
+		return 0;
+#endif
 	for( FObjectIterator It; It; ++It )
 		if( *It == Object )
+		{
+#if PLATFORM_ANDROID
+			if( KnownObjects.Num() < 4096 )
+				KnownObjects.AddItem( Object );
+#endif
 			return 1;
+#if PLATFORM_ANDROID
+		}
+	if( BadObjects.Num() < 4096 )
+		BadObjects.AddItem( Object );
+#endif
 	return 0;
 	unguardSlow;
 }
@@ -126,7 +229,23 @@ void URender::SetupDynamics( FSceneNode* Frame, AActor* Exclude )
 	INT AndroidDynamicsBrushes = 0;
 	INT AndroidDynamicsLights = 0;
 	INT AndroidDynamicsSkipped = 0;
+	INT AndroidDynamicsFast = 0;
+	INT AndroidDynamicsFastMesh = 0;
+	INT AndroidDynamicsFastSprite = 0;
 	UBOOL AndroidSkipCityIntroDynamics = 0;
+	UBOOL AndroidFastCityIntroDynamics = 0;
+	if
+	(	Frame->Viewport
+	&&	Frame->Viewport->Actor
+	&&	Frame->Viewport->Actor->Physics == PHYS_Interpolating
+	&&	Frame->Viewport->Actor->GetLevel()
+	&&	Frame->Viewport->Actor->GetLevel()->GetOuter()
+	&&	appStricmp( Frame->Viewport->Actor->GetLevel()->GetOuter()->GetName(), TEXT("CityIntro") ) == 0 )
+	{
+#if UT99_ANDROID_CITYINTRO_FAST_DYNAMICS
+		AndroidFastCityIntroDynamics = 1;
+#endif
+	}
 #if UT99_ANDROID_CITYINTRO_SKIP_DYNAMICS
 	if
 	(	Frame->Viewport
@@ -181,13 +300,63 @@ void URender::SetupDynamics( FSceneNode* Frame, AActor* Exclude )
 				if( !Actor->IsMovingBrush() )
 				{
 #if PLATFORM_ANDROID
+					if
+					(	UT99_ANDROID_CITYINTRO_DIRECT_IMPORTANT_MESHES
+					&&	AndroidIsImportantMeshActor( Actor )
+					&&	Actor->DrawType == DT_Mesh
+					&&	Frame->Viewport
+					&&	Frame->Viewport->Actor
+					&&	Frame->Viewport->Actor->Physics == PHYS_Interpolating
+					&&	Frame->Viewport->Actor->GetLevel()
+					&&	Frame->Viewport->Actor->GetLevel()->GetOuter()
+					&&	appStricmp( Frame->Viewport->Actor->GetLevel()->GetOuter()->GetName(), TEXT("CityIntro") ) == 0 )
+					{
+						FDynamicSprite* DirectSprite = new(GDynMem)FDynamicSprite( Actor );
+						DirectSprite->RenderNext = NULL;
+						if( DirectSprite->Setup( Frame ) )
+						{
+							DirectSprite->RenderNext = Frame->Sprite;
+							Frame->Sprite = DirectSprite;
+							AndroidDynamicsSprites++;
+							AndroidDynamicsFast++;
+							AndroidDynamicsFastMesh++;
+							AndroidLogDynamicMeshStage( TEXT("directFrameSprite"), Actor, -1, -1, NULL, DirectSprite->SpanBuffer );
+							goto SkipDynamicSprite;
+						}
+						else
+						{
+							AndroidLogDynamicMeshStage( TEXT("directSetupFail"), Actor, -1, -1, NULL, NULL );
+							AndroidDynamicsSkipped++;
+							goto SkipDynamicSprite;
+						}
+					}
 					if( AndroidSkipCityIntroDynamics )
 					{
 						AndroidDynamicsSkipped++;
 						goto SkipDynamicSprite;
 					}
+					if( AndroidFastCityIntroDynamics )
+					{
+						FDynamicSprite* Sprite = new(GDynMem)FDynamicSprite( Actor );
+						Sprite->RenderNext = NULL;
+						if( Sprite->Setup( Frame ) )
+						{
+							Sprite->RenderNext = Frame->Sprite;
+							Frame->Sprite = Sprite;
+							AndroidDynamicsFast++;
+							AndroidDynamicsSprites++;
+							if( Actor->DrawType == DT_Mesh )
+								AndroidDynamicsFastMesh++;
+							else
+								AndroidDynamicsFastSprite++;
+						}
+						else
+						{
+							AndroidDynamicsSkipped++;
+						}
+						goto SkipDynamicSprite;
+					}
 #endif
-					SanitizeActorRenderRefs( Actor, TEXT("SetupDynamics") );
 #if defined(LEGEND) //LEGEND
 if( GIsRunning ) //!!Tim -- don't render until after the engine is fully initialized.
 {
@@ -276,6 +445,9 @@ if( GIsRunning ) //!!Tim -- don't render until after the engine is fully initial
 	static INT AndroidDynamicsBrushAccum = 0;
 	static INT AndroidDynamicsLightAccum = 0;
 	static INT AndroidDynamicsSkipAccum = 0;
+	static INT AndroidDynamicsFastAccum = 0;
+	static INT AndroidDynamicsFastMeshAccum = 0;
+	static INT AndroidDynamicsFastSpriteAccum = 0;
 	AndroidDynamicsTimingFrames++;
 	AndroidDynamicsTimingAccum += (appSeconds() - AndroidDynamicsStart) * 1000.0;
 	AndroidDynamicsActorAccum += AndroidDynamicsActors;
@@ -283,20 +455,29 @@ if( GIsRunning ) //!!Tim -- don't render until after the engine is fully initial
 	AndroidDynamicsBrushAccum += AndroidDynamicsBrushes;
 	AndroidDynamicsLightAccum += AndroidDynamicsLights;
 	AndroidDynamicsSkipAccum += AndroidDynamicsSkipped;
+	AndroidDynamicsFastAccum += AndroidDynamicsFast;
+	AndroidDynamicsFastMeshAccum += AndroidDynamicsFastMesh;
+	AndroidDynamicsFastSpriteAccum += AndroidDynamicsFastSprite;
 	if( AndroidDynamicsTimingFrames >= 60 )
 	{
-		debugf( NAME_Log, TEXT("UT99_ANDROID_V286_SETUPDYNAMICS_TIMING frames=%i avgMs=%f avgActors=%f avgSprites=%f avgBrushes=%f avgLights=%f avgSkipped=%f"),
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V286_SETUPDYNAMICS_TIMING frames=%i avgMs=%f avgActors=%f avgSprites=%f avgBrushes=%f avgLights=%f avgSkipped=%f avgFast=%f avgFastMesh=%f avgFastSprite=%f"),
 			AndroidDynamicsTimingFrames,
 			AndroidDynamicsTimingAccum / AndroidDynamicsTimingFrames,
 			(FLOAT)AndroidDynamicsActorAccum / AndroidDynamicsTimingFrames,
 			(FLOAT)AndroidDynamicsSpriteAccum / AndroidDynamicsTimingFrames,
 			(FLOAT)AndroidDynamicsBrushAccum / AndroidDynamicsTimingFrames,
 			(FLOAT)AndroidDynamicsLightAccum / AndroidDynamicsTimingFrames,
-			(FLOAT)AndroidDynamicsSkipAccum / AndroidDynamicsTimingFrames );
+			(FLOAT)AndroidDynamicsSkipAccum / AndroidDynamicsTimingFrames,
+			(FLOAT)AndroidDynamicsFastAccum / AndroidDynamicsTimingFrames,
+			(FLOAT)AndroidDynamicsFastMeshAccum / AndroidDynamicsTimingFrames,
+			(FLOAT)AndroidDynamicsFastSpriteAccum / AndroidDynamicsTimingFrames );
 		AndroidDynamicsTimingFrames = 0;
 		AndroidDynamicsTimingAccum = 0.0;
 		AndroidDynamicsActorAccum = AndroidDynamicsSpriteAccum = AndroidDynamicsBrushAccum = 0;
 		AndroidDynamicsLightAccum = AndroidDynamicsSkipAccum = 0;
+		AndroidDynamicsFastAccum = 0;
+		AndroidDynamicsFastMeshAccum = 0;
+		AndroidDynamicsFastSpriteAccum = 0;
 	}
 #endif
 	STAT(unclock(GStat.FilterTime));
@@ -466,28 +647,54 @@ UBOOL FDynamicSprite::Setup( FSceneNode* Frame )
 	}
 	else if( Actor->DrawType==DT_Mesh )
 	{
+#if PLATFORM_ANDROID
+		AndroidLogMeshSetup( TEXT("entry"), Actor, Frame, 0.f, NULL );
+#endif
 		SanitizeActorRenderRefs( Actor, TEXT("FDynamicSprite.Mesh") );
 		// Verify mesh.
 		if( !Actor->Mesh )
+		{
+#if PLATFORM_ANDROID
+			AndroidLogMeshSetup( TEXT("noMesh"), Actor, Frame, 0.f, NULL );
+#endif
 			return 0;
+		}
 
 		// Setup projection plane.
 		Z = ((Actor->Location - Frame->Coords.Origin) | Frame->Coords.ZAxis) - SPRITE_PROJECTION_FORWARD;
 		if( Z<-2*SPRITE_PROJECTION_FORWARD && !Frame->Viewport->IsOrtho() )
+		{
+#if PLATFORM_ANDROID
+			AndroidLogMeshSetup( TEXT("behind"), Actor, Frame, Z, NULL );
+#endif
 			return 0;
+		}
 
 		FScreenBounds ScreenBounds;
 		FBox Bounds = Actor->Mesh->GetRenderBoundingBox( Actor, 0 );
 		if( !GRender->BoundVisible( Frame, &Bounds, NULL, ScreenBounds ) )
+		{
+#if PLATFORM_ANDROID
+			AndroidLogMeshSetup( TEXT("boundHidden"), Actor, Frame, Z, &ScreenBounds );
+#endif
 			return 0;
+		}
 
 		X1 = (INT) ScreenBounds.MinX;
 		X2 = (INT) ScreenBounds.MaxX;
 		Y1 = (INT) ScreenBounds.MinY;
 		Y2 = (INT) ScreenBounds.MaxY;
 		if( Y1>=Y2 )
+		{
+#if PLATFORM_ANDROID
+			AndroidLogMeshSetup( TEXT("badY"), Actor, Frame, Z, &ScreenBounds );
+#endif
 			return 0;
+		}
 
+#if PLATFORM_ANDROID
+		AndroidLogMeshSetup( TEXT("ok"), Actor, Frame, Z, &ScreenBounds );
+#endif
 		return 1;
 	}
 	else return 0;
@@ -516,6 +723,9 @@ FDynamicChunk::FDynamicChunk( INT iNode, FDynamicSprite* InSprite, FRasterPoly* 
 void FDynamicChunk::Filter( UViewport* Viewport, FSceneNode* Frame, INT iNode, INT Outside )
 {
 	guardSlow(FDynamicChunk::Filter);
+#if PLATFORM_ANDROID
+	const DOUBLE AndroidFilterStart = appSeconds();
+#endif
 	FBspNode& Node = Frame->Level->Model->Nodes(iNode);
 
 	// Setup.
@@ -700,6 +910,10 @@ void FDynamicChunk::Filter( UViewport* Viewport, FSceneNode* Frame, INT iNode, I
 		else if( Outside && !CSG )
 			new(GDynMem)FDynamicFinalChunk( iNode, Sprite, BackRaster, 1 );
 	}
+#if PLATFORM_ANDROID
+	GAndroidDynamicChunkFilterCalls++;
+	GAndroidDynamicChunkFilterMs += (appSeconds() - AndroidFilterStart) * 1000.0;
+#endif
 	unguardSlow;
 }
 
@@ -713,6 +927,10 @@ FDynamicFinalChunk::FDynamicFinalChunk( INT iNode, FDynamicSprite* InSprite, FRa
 ,	Sprite( InSprite )
 {
 	guardSlow(FDynamicFinalChunk::FDynamicFinalChunk);
+#if PLATFORM_ANDROID
+	GAndroidDynamicFinalChunks++;
+	AndroidLogDynamicMeshStage( TEXT("finalChunk"), InSprite ? InSprite->Actor : NULL, iNode, IsBack, InRaster, NULL );
+#endif
 
 	// Set Z.
 	Z = InSprite->Z;
@@ -744,12 +962,18 @@ void FDynamicFinalChunk::PreRender( UViewport* Viewport, FSceneNode* Frame, FSpa
 			Drawn                = 1;
 			Sprite->RenderNext	 = Frame->Sprite;
 			Frame->Sprite        = Sprite;
+#if PLATFORM_ANDROID
+			AndroidLogDynamicMeshStage( TEXT("preRenderDrawn"), Sprite ? Sprite->Actor : NULL, iNode, -1, Raster, Sprite->SpanBuffer );
+#endif
 		}
 		else
 		{
 			// Span buffer is empty, so ditch it.
 			Sprite->SpanBuffer->Release();
 			Sprite->SpanBuffer = NULL;
+#if PLATFORM_ANDROID
+			AndroidLogDynamicMeshStage( TEXT("preRenderEmpty"), Sprite ? Sprite->Actor : NULL, iNode, -1, Raster, SpanBuffer );
+#endif
 		}
 	}
 	else
@@ -764,6 +988,9 @@ void FDynamicFinalChunk::PreRender( UViewport* Viewport, FSceneNode* Frame, FSpa
 			Drawn = 1;
 			Sprite->SpanBuffer->MergeWith(*Span);
 			STAT(GStat.ChunksDrawn++);
+#if PLATFORM_ANDROID
+			AndroidLogDynamicMeshStage( TEXT("preRenderMerged"), Sprite ? Sprite->Actor : NULL, iNode, -1, Raster, Sprite->SpanBuffer );
+#endif
 		}
 
 		// Release the temporary memory.
@@ -917,6 +1144,11 @@ static DWORD GetPolyFlags( FSceneNode* Frame, AActor* Owner )
 void URender::DrawActorSprite( FSceneNode* Frame, FDynamicSprite* Sprite )
 {
 	guard(URender::DrawActorSprite);
+#if PLATFORM_ANDROID
+	const DOUBLE AndroidActorDrawStart = appSeconds();
+	if( Sprite && AndroidIsImportantMeshActor( Sprite->Actor ) )
+		AndroidLogDynamicMeshStage( TEXT("drawActor"), Sprite->Actor, -1, -1, NULL, Sprite->SpanBuffer );
+#endif
 	PUSH_HIT(Frame,HActor(Sprite->Actor));
 	DWORD PolyFlags = GetPolyFlags(Frame,Sprite->Actor);
 
@@ -988,6 +1220,17 @@ void URender::DrawActorSprite( FSceneNode* Frame, FDynamicSprite* Sprite )
 		guard(DrawMesh);
 		if( Frame->Viewport->Actor->RendMap==REN_Polys || Frame->Viewport->Actor->RendMap==REN_PolyCuts || Frame->Viewport->Actor->RendMap==REN_Zones || Frame->Viewport->Actor->RendMap==REN_Wire )
 			PolyFlags |= PF_FlatShaded;
+#if PLATFORM_ANDROID
+		// if( AndroidIsImportantMeshActor( Sprite->Actor ) )
+		// 	debugf( NAME_Log, TEXT("UT99_ANDROID_V297_DRAW_MESH_BRANCH actor=%s mesh=%s span=%p zone=%p poly=0x%08x style=%i scale=%f"),
+		// 		Sprite->Actor ? Sprite->Actor->GetFullName() : TEXT("None"),
+		// 		(Sprite->Actor && Sprite->Actor->Mesh) ? Sprite->Actor->Mesh->GetFullName() : TEXT("None"),
+		// 		Sprite->SpanBuffer,
+		// 		Sprite->Actor ? Sprite->Actor->Region.Zone : NULL,
+		// 		PolyFlags,
+		// 		Sprite->Actor ? Sprite->Actor->Style : 0,
+		// 		Sprite->Actor ? Sprite->Actor->DrawScale : 0.0f );
+#endif
 		DrawMesh
 		(
 			Frame,
@@ -1114,6 +1357,58 @@ void URender::DrawActorSprite( FSceneNode* Frame, FDynamicSprite* Sprite )
 	}
 
 	// Done.
+#if PLATFORM_ANDROID
+	const DOUBLE AndroidActorDrawMs = (appSeconds() - AndroidActorDrawStart) * 1000.0;
+	static INT AndroidActorDrawCalls = 0;
+	static INT AndroidActorDrawMeshCalls = 0;
+	static INT AndroidActorDrawSpriteCalls = 0;
+	static DOUBLE AndroidActorDrawMsAccum = 0.0;
+	static DOUBLE AndroidActorDrawMeshMsAccum = 0.0;
+	static DOUBLE AndroidActorDrawSpriteMsAccum = 0.0;
+	static INT AndroidActorDrawSlowLogs = 0;
+	AndroidActorDrawCalls++;
+	AndroidActorDrawMsAccum += AndroidActorDrawMs;
+	if( Sprite->Actor && Sprite->Actor->DrawType == DT_Mesh )
+	{
+		AndroidActorDrawMeshCalls++;
+		AndroidActorDrawMeshMsAccum += AndroidActorDrawMs;
+	}
+	else
+	{
+		AndroidActorDrawSpriteCalls++;
+		AndroidActorDrawSpriteMsAccum += AndroidActorDrawMs;
+	}
+	if( AndroidActorDrawMs > 4.0 && AndroidActorDrawSlowLogs < 64 )
+	{
+		AndroidActorDrawSlowLogs++;
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V290_SLOW_ACTOR_DRAW ms=%f actor=%s drawType=%i mesh=%p meshName=%s texture=%p textureName=%s skin=%p span=%p"),
+			AndroidActorDrawMs,
+			Sprite->Actor ? Sprite->Actor->GetFullName() : TEXT("None"),
+			Sprite->Actor ? Sprite->Actor->DrawType : -1,
+			Sprite->Actor ? Sprite->Actor->Mesh : NULL,
+			(Sprite->Actor && Sprite->Actor->Mesh) ? Sprite->Actor->Mesh->GetFullName() : TEXT("None"),
+			Sprite->Actor ? Sprite->Actor->Texture : NULL,
+			(Sprite->Actor && Sprite->Actor->Texture) ? Sprite->Actor->Texture->GetFullName() : TEXT("None"),
+			Sprite->Actor ? Sprite->Actor->Skin : NULL,
+			Sprite->SpanBuffer );
+	}
+	if( AndroidActorDrawCalls >= 600 )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V290_ACTOR_DRAW_TIMING calls=%i avgMs=%f meshCalls=%i avgMeshMs=%f spriteCalls=%i avgSpriteMs=%f"),
+			AndroidActorDrawCalls,
+			AndroidActorDrawMsAccum / AndroidActorDrawCalls,
+			AndroidActorDrawMeshCalls,
+			AndroidActorDrawMeshCalls ? AndroidActorDrawMeshMsAccum / AndroidActorDrawMeshCalls : 0.0,
+			AndroidActorDrawSpriteCalls,
+			AndroidActorDrawSpriteCalls ? AndroidActorDrawSpriteMsAccum / AndroidActorDrawSpriteCalls : 0.0 );
+		AndroidActorDrawCalls = 0;
+		AndroidActorDrawMeshCalls = 0;
+		AndroidActorDrawSpriteCalls = 0;
+		AndroidActorDrawMsAccum = 0.0;
+		AndroidActorDrawMeshMsAccum = 0.0;
+		AndroidActorDrawSpriteMsAccum = 0.0;
+	}
+#endif
 	POP_HIT(Frame);
 	unguard;
 }

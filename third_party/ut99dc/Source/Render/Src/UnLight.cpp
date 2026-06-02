@@ -105,7 +105,7 @@ Revision history:
 
 #if PLATFORM_ANDROID
 #ifndef UT99_ANDROID_DISABLE_BSP_DYNAMIC_LIGHTMAPS
-#define UT99_ANDROID_DISABLE_BSP_DYNAMIC_LIGHTMAPS 1
+#define UT99_ANDROID_DISABLE_BSP_DYNAMIC_LIGHTMAPS 0
 #endif
 #endif
 
@@ -1541,6 +1541,13 @@ void FLightManager::SetupForSurf
 	guard(FLightManager::SetupForSurf);
 	STAT(clock(GStat.IllumTime));
 	INT Key=0;
+#if PLATFORM_ANDROID
+	DOUBLE AndroidLightSetupStart = appSeconds();
+	INT AndroidStaticLightmapHit = 0;
+	INT AndroidStaticLightmapCreate = 0;
+	INT AndroidDynamicLightmapSkipped = 0;
+	INT AndroidDynamicLightmapCreated = 0;
+#endif
 
 #if 0
 	// To regenerate all lighting every frame, uncomment this.
@@ -1768,6 +1775,10 @@ void FLightManager::SetupForSurf
 
 	// Handle static lighting.
 	DWORD* Stream = (DWORD*)GCache.Get(LightMap.CacheID,*TopItemToUnlock++);
+#if PLATFORM_ANDROID
+	if( Stream )
+		AndroidStaticLightmapHit = 1;
+#endif
 	struct FMoverStamp{ INT iLeaf; FVector Location; FRotator Rotation; };
 	if( Mover && Stream )
 	{
@@ -1781,7 +1792,12 @@ void FLightManager::SetupForSurf
 		guard(StaticLighting);
 		StaticLightingChanged=1;
 		if( !Stream )
+		{
+#if PLATFORM_ANDROID
+			AndroidStaticLightmapCreate = 1;
+#endif
 			Stream = (DWORD*)GCache.Create( LightMap.CacheID, TopItemToUnlock[-1], (LightMap.USize*LightMap.VClamp) * sizeof(DWORD) + sizeof(FColor) + sizeof(FMoverStamp), DEFAULT_ALIGNMENT, LightMap.USize*(LightMap.VSize-LightMap.VClamp) );
+		}
 		if( Mover )
 		{
 			((FMoverStamp*)Stream)->iLeaf    = Mover->Region.iLeaf;
@@ -1842,6 +1858,7 @@ void FLightManager::SetupForSurf
 				(DWORD)(LightMap.CacheID >> 32),
 				(DWORD)LightMap.CacheID );
 		AndroidSkipDynamicLightmapLogs++;
+		AndroidDynamicLightmapSkipped = 1;
 		DynamicLights = 0;
 		MovingLights = 0;
 	}
@@ -1864,7 +1881,10 @@ void FLightManager::SetupForSurf
 			if( !Stream || *(DOUBLE*)Stream!=Frame->Viewport->CurrentTime )
 			{
 				if( !Stream )
+				{
 					Stream = (DWORD*)GCache.Create( LightMap.CacheID, TopItemToUnlock[-1], (LightMap.USize*LightMap.VClamp + 3) * sizeof(DWORD), DEFAULT_ALIGNMENT, LightMap.USize*(LightMap.VSize-LightMap.VClamp) );
+					AndroidDynamicLightmapCreated = 1;
+				}
 				*(DOUBLE*)Stream = Frame->Viewport->CurrentTime;
 				Stream += 2;
 				LightMap.MaxColor = (FColor*)Stream++;
@@ -1959,6 +1979,36 @@ void FLightManager::SetupForSurf
 	LightMip.DataPtr = (BYTE*)Stream;
 
 	STAT(unclock(GStat.IllumTime));
+#if PLATFORM_ANDROID
+	static INT AndroidLightSetupCalls = 0;
+	static INT AndroidStaticHitAccum = 0;
+	static INT AndroidStaticCreateAccum = 0;
+	static INT AndroidDynamicSkipAccum = 0;
+	static INT AndroidDynamicCreateAccum = 0;
+	static DOUBLE AndroidLightSetupMsAccum = 0.0;
+	AndroidLightSetupCalls++;
+	AndroidStaticHitAccum += AndroidStaticLightmapHit;
+	AndroidStaticCreateAccum += AndroidStaticLightmapCreate;
+	AndroidDynamicSkipAccum += AndroidDynamicLightmapSkipped;
+	AndroidDynamicCreateAccum += AndroidDynamicLightmapCreated;
+	AndroidLightSetupMsAccum += (appSeconds() - AndroidLightSetupStart) * 1000.0;
+	if( AndroidLightSetupCalls >= 3600 )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V288_LIGHTMAP_CACHE_TIMING calls=%i avgMsPerCall=%f staticHits=%i staticCreates=%i dynamicSkips=%i dynamicCreates=%i"),
+			AndroidLightSetupCalls,
+			AndroidLightSetupCalls ? AndroidLightSetupMsAccum / AndroidLightSetupCalls : 0.0,
+			AndroidStaticHitAccum,
+			AndroidStaticCreateAccum,
+			AndroidDynamicSkipAccum,
+			AndroidDynamicCreateAccum );
+		AndroidLightSetupCalls = 0;
+		AndroidStaticHitAccum = 0;
+		AndroidStaticCreateAccum = 0;
+		AndroidDynamicSkipAccum = 0;
+		AndroidDynamicCreateAccum = 0;
+		AndroidLightSetupMsAccum = 0.0;
+	}
+#endif
 	unguard;
 }
 

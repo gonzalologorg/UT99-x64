@@ -22,6 +22,20 @@ QSORT_RETURN CDECL CompareFaceKey( const FMeshFaceSort* A, const FMeshFaceSort* 
 	return B->Key - A->Key;
 }
 
+#if PLATFORM_ANDROID
+// static UBOOL AndroidIsImportantLodActor( AActor* Actor )
+// {
+// 	if( !Actor )
+// 		return 0;
+// 	const TCHAR* Name = Actor->GetFullName();
+// 	return appStrstr(Name,TEXT("Intro"))
+// 		|| appStrstr(Name,TEXT("Fighter"))
+// 		|| appStrstr(Name,TEXT("fighter"))
+// 		|| appStrstr(Name,TEXT("ArenaCam"))
+// 		|| appStrstr(Name,TEXT("TMale"));
+// }
+#endif
+
 //
 // Draw a mesh map with level-of-detail support.
 //
@@ -48,24 +62,27 @@ void URender::DrawLodMesh
 	ULodMesh*  Mesh = (ULodMesh*)Owner->Mesh;
 #if PLATFORM_ANDROID
 	static INT AndroidLodEntryLogs = 0;
-	if( AndroidLodEntryLogs < 64 )
-	{
-		debugf( NAME_Log, TEXT("UT99_ANDROID_V266_LOD_ENTRY actor=%s mesh=%p meshName=%s drawScale=%f skin=%p texture=%p zone=%p"),
-			Owner ? Owner->GetFullName() : TEXT("None"),
-			Mesh,
-			(Mesh && AndroidKnownObject(Mesh, ULodMesh::StaticClass())) ? Mesh->GetFullName() : TEXT("Invalid"),
-			Owner ? Owner->DrawScale : 0.0f,
-			Owner ? Owner->Skin : NULL,
-			Owner ? Owner->Texture : NULL,
-			Owner ? Owner->Region.Zone : NULL );
-		AndroidLodEntryLogs++;
-	}
-	if( !AndroidValidateLodMesh( Owner, Mesh, TEXT("DrawLodMesh") ) )
-	{
-		STAT(unclock(GStat.MeshTime));
-		Mark.Pop();
-		return;
-	}
+	// const UBOOL AndroidImportantLodActor = AndroidIsImportantLodActor( Owner );
+	// if( AndroidImportantLodActor || AndroidLodEntryLogs < 64 )
+	// {
+	// 	debugf( NAME_Log, TEXT("UT99_ANDROID_V297_LOD_ENTRY count=%i actor=%s mesh=%p meshName=%s drawScale=%f skin=%p texture=%p span=%p zone=%p"),
+	// 		AndroidLodEntryLogs,
+	// 		Owner ? Owner->GetFullName() : TEXT("None"),
+	// 		Mesh,
+	// 		(Mesh && AndroidKnownObject(Mesh, ULodMesh::StaticClass())) ? Mesh->GetFullName() : TEXT("Invalid"),
+	// 		Owner ? Owner->DrawScale : 0.0f,
+	// 		Owner ? Owner->Skin : NULL,
+	// 		Owner ? Owner->Texture : NULL,
+	// 		SpanBuffer,
+	// 		Owner ? Owner->Region.Zone : NULL );
+	// 	AndroidLodEntryLogs++;
+	// }
+	// if( !AndroidValidateLodMesh( Owner, Mesh, TEXT("DrawLodMesh") ) )
+	// {
+	// 	STAT(unclock(GStat.MeshTime));
+	// 	Mark.Pop();
+	// 	return;
+	// }
 #endif
 	FVector Hack = FVector(0,-8,0);
 	UBOOL SoftwareRendering =  Frame->Viewport->RenDev->SpanBased;
@@ -645,6 +662,15 @@ void URender::DrawLodMesh
 	if( FacePool.Num() )
 	{
 		guardSlow(Render);
+#if PLATFORM_ANDROID
+		INT AndroidLodSkippedMaterial = 0;
+		INT AndroidLodSkippedTexIndex = 0;
+		INT AndroidLodSkippedWedge = 0;
+		INT AndroidLodSkippedVertex = 0;
+		INT AndroidLodMissingTexture = 0;
+		INT AndroidLodEnvFaces = 0;
+		INT AndroidLodDrawCalls = 0;
+#endif
 		// Fatness.
 		UBOOL Fatten   = Owner->Fatness!=128;
 		FLOAT Fatness  = (Owner->Fatness/16.0)-8.0;
@@ -748,7 +774,10 @@ void URender::DrawLodMesh
 			{
 #if PLATFORM_ANDROID
 				if( Face.MaterialIndex < 0 || Face.MaterialIndex >= Mesh->Materials.Num() )
+				{
+					AndroidLodSkippedMaterial++;
 					continue;
+				}
 #endif
 				MatIndex = Face.MaterialIndex;
 				MatFlags = ExtraFlags | Mesh->Materials( MatIndex ).PolyFlags;
@@ -756,9 +785,17 @@ void URender::DrawLodMesh
 #if PLATFORM_ANDROID
 				if( TexIndex < 0 || TexIndex >= Mesh->Textures.Num() || TexIndex >= ARRAY_COUNT(TextureInfo) )
 				{
+					AndroidLodSkippedTexIndex++;
 					debugf( NAME_Warning, TEXT("UT99_ANDROID_V265_BAD_TEXTURE_INDEX actor=%s mesh=%s mat=%i tex=%i textures=%i"),
 						Owner->GetFullName(), Mesh->GetFullName(), MatIndex, TexIndex, Mesh->Textures.Num() );
 					continue;
+				}
+#endif
+#if PLATFORM_ANDROID
+				if( !Textures[TexIndex] || (MatFlags & PF_Environment) )
+				{
+					AndroidLodMissingTexture += !Textures[TexIndex] ? 1 : 0;
+					AndroidLodEnvFaces++;
 				}
 #endif
 				Info = ( Textures[TexIndex] && !(MatFlags & PF_Environment)) ? &TextureInfo[TexIndex] : &EnvironmentInfo;
@@ -771,14 +808,20 @@ void URender::DrawLodMesh
 			// Vertex 0,1,2 unrolled assignment.
 #if PLATFORM_ANDROID
 			if( Face.iWedge[0] < 0 || Face.iWedge[0] >= WedgePool.Num() || Face.iWedge[1] < 0 || Face.iWedge[1] >= WedgePool.Num() || Face.iWedge[2] < 0 || Face.iWedge[2] >= WedgePool.Num() )
+			{
+				AndroidLodSkippedWedge++;
 				continue;
+			}
 #endif
 			FMeshWedge Wedge0 = WedgePool( Face.iWedge[0] );
 			FMeshWedge Wedge1 = WedgePool( Face.iWedge[1] );
 			FMeshWedge Wedge2 = WedgePool( Face.iWedge[2] );
 #if PLATFORM_ANDROID
 			if( Wedge0.iVertex < 0 || Wedge0.iVertex >= VertexSubset || Wedge1.iVertex < 0 || Wedge1.iVertex >= VertexSubset || Wedge2.iVertex < 0 || Wedge2.iVertex >= VertexSubset )
+			{
+				AndroidLodSkippedVertex++;
 				continue;
+			}
 #endif
 			Pts[0]    = &Samples[ Wedge0.iVertex ];
 			Pts[1]    = &Samples[ Wedge1.iVertex ];
@@ -793,6 +836,9 @@ void URender::DrawLodMesh
 			if( Frame->Mirror == -1 ) 
 					Exchange( Pts[2], Pts[0] );
 			RenderSubsurface( Frame, *Info, SpanBuffer, Pts, MatFlags, 0 );
+#if PLATFORM_ANDROID
+			AndroidLodDrawCalls++;
+#endif
 		}
 
 	GLightManager->FinishActor();
@@ -802,8 +848,53 @@ void URender::DrawLodMesh
 		}
 		EnvironmentMap->Unlock( EnvironmentInfo );		
 
+#if PLATFORM_ANDROID
+		// static INT AndroidLodSummaryLogs = 0;
+		// if( AndroidImportantLodActor || AndroidLodSummaryLogs < 96 || (AndroidLodSummaryLogs % 180) == 0 )
+		// 	debugf( NAME_Log, TEXT("UT99_ANDROID_V293_LOD_DRAW_SUMMARY count=%i actor=%s mesh=%s faces=%i facePool=%i drawn=%i skippedMat=%i skippedTex=%i skippedWedge=%i skippedVertex=%i missingTex=%i envFaces=%i textures=%i mats=%i verts=%i subset=%i outcode=0x%08x skin=%p texture=%p"),
+		// 		AndroidLodSummaryLogs,
+		// 		Owner ? Owner->GetFullName() : TEXT("None"),
+		// 		Mesh ? Mesh->GetFullName() : TEXT("None"),
+		// 		Mesh ? Mesh->Faces.Num() : -1,
+		// 		FacePool.Num(),
+		// 		AndroidLodDrawCalls,
+		// 		AndroidLodSkippedMaterial,
+		// 		AndroidLodSkippedTexIndex,
+		// 		AndroidLodSkippedWedge,
+		// 		AndroidLodSkippedVertex,
+		// 		AndroidLodMissingTexture,
+		// 		AndroidLodEnvFaces,
+		// 		Mesh ? Mesh->Textures.Num() : -1,
+		// 		Mesh ? Mesh->Materials.Num() : -1,
+		// 		Mesh ? Mesh->ModelVerts : -1,
+		// 		VertexSubset,
+		// 		MeshOutcode,
+		// 		Owner ? Owner->Skin : NULL,
+		// 		Owner ? Owner->Texture : NULL );
+		// AndroidLodSummaryLogs++;
+#endif
 		unguardSlow;
 	}
+#if PLATFORM_ANDROID
+	else
+	{
+		static INT AndroidLodEmptyLogs = 0;
+		// if( AndroidImportantLodActor || AndroidLodEmptyLogs < 64 || (AndroidLodEmptyLogs % 180) == 0 )
+		// 	debugf( NAME_Log, TEXT("UT99_ANDROID_V293_LOD_EMPTY count=%i actor=%s mesh=%s faces=%i mats=%i textures=%i verts=%i subset=%i outcode=0x%08x doLOD=%i doMorph=%i"),
+		// 		AndroidLodEmptyLogs,
+		// 		Owner ? Owner->GetFullName() : TEXT("None"),
+		// 		Mesh ? Mesh->GetFullName() : TEXT("None"),
+		// 		Mesh ? Mesh->Faces.Num() : -1,
+		// 		Mesh ? Mesh->Materials.Num() : -1,
+		// 		Mesh ? Mesh->Textures.Num() : -1,
+		// 		Mesh ? Mesh->ModelVerts : -1,
+		// 		VertexSubset,
+		// 		MeshOutcode,
+		// 		DoLOD,
+		// 		DoMorph );
+		// AndroidLodEmptyLogs++;
+	}
+#endif
 
 
 	STAT(GStat.MeshCount++);

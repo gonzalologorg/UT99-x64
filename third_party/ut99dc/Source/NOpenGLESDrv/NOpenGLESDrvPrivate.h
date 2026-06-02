@@ -260,7 +260,7 @@ private:
 			AndroidFlushTimingSubDataMs += AndroidSubDataMs;
 			AndroidFlushTimingDrawMs += AndroidDrawMs;
 			AndroidFlushTimingTotalMs += (appSeconds() - AndroidFlushStart) * 1000.0;
-			if( AndroidFlushTimingCount >= 600 )
+			if( AndroidFlushTimingCount >= 120 )
 			{
 				debugf( NAME_Log, TEXT("UT99_ANDROID_V286_GLES_FLUSH_TIMING flushes=%i avgTotalMs=%f avgSubDataMs=%f avgDrawMs=%f avgIdxElems=%f avgVtxBytes=%f"),
 					AndroidFlushTimingCount,
