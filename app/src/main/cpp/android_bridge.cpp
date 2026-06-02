@@ -113,6 +113,37 @@ static void push_android_button_event(int keyCode, bool down) {
     }
 }
 
+static void push_android_mouse_event(float x, float y, int action) {
+    SDL_Window* focus = SDL_GetKeyboardFocus();
+    const Uint32 windowID = focus ? SDL_GetWindowID(focus) : 0;
+
+    SDL_Event motion;
+    SDL_memset(&motion, 0, sizeof(motion));
+    motion.type = SDL_MOUSEMOTION;
+    motion.motion.windowID = windowID;
+    motion.motion.which = SDL_TOUCH_MOUSEID;
+    motion.motion.state = (action == 0 || action == 5 || action == 2) ? SDL_BUTTON_LMASK : 0;
+    motion.motion.x = static_cast<Sint32>(x);
+    motion.motion.y = static_cast<Sint32>(y);
+    motion.motion.xrel = 0;
+    motion.motion.yrel = 0;
+    SDL_PushEvent(&motion);
+
+    if (action == 0 || action == 5 || action == 1 || action == 6 || action == 3) {
+        SDL_Event button;
+        SDL_memset(&button, 0, sizeof(button));
+        button.type = (action == 0 || action == 5) ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
+        button.button.windowID = windowID;
+        button.button.which = SDL_TOUCH_MOUSEID;
+        button.button.button = SDL_BUTTON_LEFT;
+        button.button.state = (action == 0 || action == 5) ? SDL_PRESSED : SDL_RELEASED;
+        button.button.clicks = 1;
+        button.button.x = static_cast<Sint32>(x);
+        button.button.y = static_cast<Sint32>(y);
+        SDL_PushEvent(&button);
+    }
+}
+
 static bool mkdir_p(const char* path) {
     if (!path || !*path) {
         return false;
@@ -302,6 +333,25 @@ Java_com_ast_ut99_GameActivity_nativeAndroidIsMenuV92(
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_com_ast_ut99_GameActivity_nativeAndroidMouseV327(
+        JNIEnv*,
+        jclass,
+        jfloat x,
+        jfloat y,
+        jint action) {
+    static int logCount = 0;
+    if (logCount < 32 || (logCount % 240) == 0) {
+        LOGI("UT99_ANDROID_V327_MOUSE_PUSH x=%f y=%f action=%d count=%d",
+             static_cast<float>(x),
+             static_cast<float>(y),
+             static_cast<int>(action),
+             logCount);
+    }
+    push_android_mouse_event(static_cast<float>(x), static_cast<float>(y), static_cast<int>(action));
+    ++logCount;
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_com_ast_ut99_GameActivity_nativeAndroidAxisV47(
         JNIEnv*,
         jclass,
@@ -314,5 +364,31 @@ Java_com_ast_ut99_GameActivity_nativeAndroidAxisV47(
              static_cast<float>(value),
              logCount);
     }
+    ++logCount;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_ast_ut99_GameActivity_nativeAndroidTouchLookV101(
+        JNIEnv*,
+        jclass,
+        jfloat x,
+        jfloat y) {
+    static int logCount = 0;
+    if (logCount < 16 || (logCount % 240) == 0) {
+        LOGI("UT99_ANDROID_V327_TOUCH_LOOK x=%f y=%f count=%d",
+             static_cast<float>(x),
+             static_cast<float>(y),
+             logCount);
+    }
+    SDL_Event motion;
+    SDL_memset(&motion, 0, sizeof(motion));
+    motion.type = SDL_MOUSEMOTION;
+    SDL_Window* focus = SDL_GetKeyboardFocus();
+    motion.motion.windowID = focus ? SDL_GetWindowID(focus) : 0;
+    motion.motion.which = SDL_TOUCH_MOUSEID;
+    motion.motion.state = 0;
+    motion.motion.xrel = static_cast<Sint32>(x * 200.0f);
+    motion.motion.yrel = static_cast<Sint32>(y * 200.0f);
+    SDL_PushEvent(&motion);
     ++logCount;
 }

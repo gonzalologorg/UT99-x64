@@ -431,7 +431,7 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 #if defined(__ANDROID__)
 			UBOOL AndroidSkipLogoPlayerScript = 0;
 			UBOOL AndroidSkipCityIntroPlayerScript = 0;
-			if( IsAndroidLogoFrontendLevel( GetLevel() ) && !GAndroidFrontendMenuRequested )
+			if( IsAndroidLogoFrontendLevel( GetLevel() ) )
 			{
 				static UBOOL AndroidLoggedLogoTickSkip = 0;
 				if( !AndroidLoggedLogoTickSkip )
@@ -492,8 +492,7 @@ UBOOL AActor::Tick( FLOAT DeltaSeconds, ELevelTick TickType )
 		if( TimerRate>0.0 && (TimerCounter+=DeltaSeconds)>=TimerRate )
 		{
 #if defined(__ANDROID__)
-			if( !GAndroidFrontendMenuRequested
-			&&	IsAndroidClassNamed( this, TEXT("CHNullHUD") )
+			if( IsAndroidClassNamed( this, TEXT("CHNullHUD") )
 			&&	( IsAndroidLogoFrontendLevel( GetLevel() ) || IsAndroidCityIntroLevel( GetLevel() ) ) )
 			{
 				static UBOOL AndroidLoggedLogoHudTimerSkip = 0;
@@ -1162,6 +1161,20 @@ void ULevel::Tick( ELevelTick TickType, FLOAT DeltaSeconds )
 				appSeconds() );
 		AndroidCityIntroDeltaClampLogs++;
 		DeltaSeconds = 1.0f/30.0f;
+	}
+	const UBOOL AndroidSkipLogoActorTicks = IsAndroidLogoFrontendLevel( this );
+	if( AndroidSkipLogoActorTicks )
+	{
+		static UBOOL AndroidLoggedLogoLevelSkip = 0;
+		if( !AndroidLoggedLogoLevelSkip )
+		{
+			AndroidLoggedLogoLevelSkip = 1;
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V329_SKIP_LOGO_LEVEL_ACTORS map=%s actors=%i firstDyn=%i"),
+				GetOuter() ? GetOuter()->GetName() : TEXT("None"),
+				Actors.Num(),
+				iFirstDynamicActor );
+		}
+		TickType = LEVELTICK_TimeOnly;
 	}
 #endif
 

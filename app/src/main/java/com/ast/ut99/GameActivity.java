@@ -98,6 +98,8 @@ public class GameActivity extends SDLActivity {
     private static native boolean nativePrepareProcess(String dataRoot, String homeDir);
     private static native void nativeAndroidTextV82(String text);
     private static native boolean nativeAndroidIsMenuV92(); // UT99_ANDROID_V92_TOUCH_OVERLAY
+    private static native void nativeAndroidMouseV327(float x, float y, int action);
+    private static volatile boolean sUt99FrontendMenuModeV327 = false;
 
     private File dataRoot;
     private File homeDir;
@@ -449,6 +451,7 @@ public class GameActivity extends SDLActivity {
     protected String[] getLibraries() {
         return new String[] {
                 "SDL2",
+                "ut99dc_android_bridge",
                 // UT99_ANDROID_V137_OUYA_LIBXMP_PRELOAD:
                 // Android 4.1.2 / OUYA does not reliably resolve native
                 // DT_NEEDED dependencies from the app lib directory when
@@ -477,11 +480,18 @@ public class GameActivity extends SDLActivity {
     private String chooseUt99StartupMapV244() {
         java.io.File root = getUt99ConfigRootV63();
         java.io.File maps = root == null ? null : new java.io.File(root, "Maps");
-        String startupMap = "Entry.unr";
-        if (maps != null && new java.io.File(maps, "CityIntro.unr").isFile()) {
-            startupMap = "CityIntro.unr";
-        }
-        android.util.Log.i("UT99Android", "UT99_ANDROID_V244_STARTUP_MAP map=" + startupMap);
+        String startupMap = "CityIntro.unr";
+        // if (maps != null && new java.io.File(maps, "UT-Logo-Map.unr").isFile()) {
+        //     startupMap = "UT-Logo-Map.unr";
+        //     sUt99FrontendMenuModeV327 = true;
+        // } else if (maps != null && new java.io.File(maps, "Entry.unr").isFile()) {
+        //     startupMap = "Entry.unr";
+        //     sUt99FrontendMenuModeV327 = true;
+        // } else if (maps != null && new java.io.File(maps, "CityIntro.unr").isFile()) {
+        //     startupMap = "CityIntro.unr";
+        // }
+        android.util.Log.i("UT99Android", "UT99_ANDROID_V327_STARTUP_MAP map=" + startupMap
+                + " frontend=" + sUt99FrontendMenuModeV327);
         return startupMap;
     }
 
@@ -1182,6 +1192,15 @@ public class GameActivity extends SDLActivity {
                     android.util.Log.i("UT99Android", "UT99_ANDROID_V72_KEY ignored repeated START/MENU key=" + keyCode);
                     return true;
                 }
+                if (action == android.view.KeyEvent.ACTION_DOWN
+                        && (keyCode == android.view.KeyEvent.KEYCODE_ESCAPE
+                        || keyCode == android.view.KeyEvent.KEYCODE_BACK
+                        || keyCode == android.view.KeyEvent.KEYCODE_MENU
+                        || keyCode == android.view.KeyEvent.KEYCODE_BUTTON_START
+                        || keyCode == android.view.KeyEvent.KEYCODE_BUTTON_MODE)) {
+                    sUt99FrontendMenuModeV327 = true;
+                    android.util.Log.i("UT99Android", "UT99_ANDROID_V327_FRONTEND_INPUT_MODE key=" + keyCode);
+                }
                 nativeAndroidButtonV47(keyCode, action == android.view.KeyEvent.ACTION_DOWN);
                 android.util.Log.i("UT99Android", "UT99_ANDROID_V246_KEY key=" + keyCode
                         + " down=" + (action == android.view.KeyEvent.ACTION_DOWN)
@@ -1611,6 +1630,22 @@ public class GameActivity extends SDLActivity {
     public boolean dispatchTouchEvent(android.view.MotionEvent ev) {
         // v60: no low-res touch rescaling.  Touch/mouse events now stay in native
         // SurfaceView coordinates so SDL and Unreal see the same drawable size.
+        if (ev != null && sUt99FrontendMenuModeV327) {
+            int action = ev.getActionMasked();
+            int index = ev.getActionIndex();
+            if (action == android.view.MotionEvent.ACTION_DOWN
+                    || action == android.view.MotionEvent.ACTION_POINTER_DOWN
+                    || action == android.view.MotionEvent.ACTION_UP
+                    || action == android.view.MotionEvent.ACTION_POINTER_UP
+                    || action == android.view.MotionEvent.ACTION_CANCEL) {
+                nativeAndroidMouseV327(ev.getX(index), ev.getY(index), action);
+                return true;
+            }
+            if (action == android.view.MotionEvent.ACTION_MOVE) {
+                nativeAndroidMouseV327(ev.getX(0), ev.getY(0), action);
+                return true;
+            }
+        }
         return super.dispatchTouchEvent(ev);
     }
 
@@ -1769,7 +1804,7 @@ public class GameActivity extends SDLActivity {
             if (now - lastConfigReadMs > 900L) { lastConfigReadMs = now; enabled = activity.ut99V91ReadTouchOverlayEnabled(); }
             if (now - lastMenuReadMs > 120L) {
                 lastMenuReadMs = now;
-                try { menuVisible = nativeAndroidIsMenuV92(); } catch (Throwable ignored) { menuVisible = false; }
+                try { menuVisible = sUt99FrontendMenuModeV327 || nativeAndroidIsMenuV92(); } catch (Throwable ignored) { menuVisible = sUt99FrontendMenuModeV327; }
             }
         }
 

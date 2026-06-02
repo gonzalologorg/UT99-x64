@@ -68,6 +68,63 @@ static inline UBOOL AndroidValidMoverVector( const FVector& V )
 	&&	Abs(V.Z)<1000000.0f;
 }
 
+static INT AndroidCityIntroRepairMoverAttachments( AMover* Mover )
+{
+	guardSlow(AndroidCityIntroRepairMoverAttachments);
+	if( !Mover || !AndroidIsCityIntroLevel( Mover->GetLevel() ) || Mover->Tag==NAME_None )
+		return 0;
+
+	ULevel* Level = Mover->GetLevel();
+	INT Attached = 0;
+	INT Lights = 0;
+	static INT AndroidAttachLogs = 0;
+	for( INT iActor=0; iActor<Level->Actors.Num(); iActor++ )
+	{
+		AActor* Other = Level->Actors(iActor);
+		if( !Other || Other==Mover || Other->bDeleteMe || Other->AttachTag!=Mover->Tag )
+			continue;
+
+		if( Other->Base != Mover )
+		{
+			Other->SetBase( Mover, 0 );
+			Attached++;
+		}
+		if( Other->LightType!=LT_None || Other->bCorona || Other->bDynamicLight )
+		{
+			Other->bDynamicLight = 1;
+			Other->bLightChanged = 1;
+			Lights++;
+		}
+		if( AndroidAttachLogs < 96 )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V325_CITYINTRO_ATTACH_REPAIR count=%i mover=%s actor=%s class=%s attachTag=%s baseNow=%s light=%i corona=%i mesh=%s"),
+				AndroidAttachLogs,
+				Mover->GetFullName(),
+				Other->GetFullName(),
+				Other->GetClass() ? Other->GetClass()->GetName() : TEXT("None"),
+				*Other->AttachTag,
+				Other->Base ? Other->Base->GetFullName() : TEXT("None"),
+				Other->LightType!=LT_None,
+				Other->bCorona,
+				Other->Mesh ? Other->Mesh->GetFullName() : TEXT("None") );
+			AndroidAttachLogs++;
+		}
+	}
+	if( (Attached || Lights) && AndroidAttachLogs < 128 )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V325_CITYINTRO_ATTACH_REPAIR count=%i mover=%s attached=%i lights=%i standing=%i tag=%s"),
+			AndroidAttachLogs,
+			Mover->GetFullName(),
+			Attached,
+			Lights,
+			Mover->StandingCount,
+			*Mover->Tag );
+		AndroidAttachLogs++;
+	}
+	return Attached;
+	unguardSlow;
+}
+
 static void AndroidCityIntroDispatchTriggerEvent( ATrigger* Trigger, AActor* Other )
 {
 	guardSlow(AndroidCityIntroDispatchTriggerEvent);
@@ -108,6 +165,7 @@ static void AndroidCityIntroDispatchTriggerEvent( ATrigger* Trigger, AActor* Oth
 		Target->eventTrigger( Other, EventInstigator );
 		if( AMover* Mover = Cast<AMover>( Target ) )
 		{
+			AndroidCityIntroRepairMoverAttachments( Mover );
 			if( !Mover->bInterpolating && !Mover->bDeleteMe && AndroidIsCityIntroLevel( Mover->GetLevel() ) )
 			{
 				const BYTE OldKeyNum = Mover->KeyNum;
@@ -621,6 +679,41 @@ void AActor::physMovingBrush( FLOAT DeltaTime )
 			{
 				// Successfully moved.
 				Mover->PhysAlpha = NewAlpha;
+#if PLATFORM_ANDROID
+				if( AndroidIsCityIntroLevel( GetLevel() ) && Mover->StandingCount > 0 )
+				{
+					static INT AndroidMovingLightLogs = 0;
+					INT Based = 0;
+					INT Lights = 0;
+					for( INT iActor=0; iActor<GetLevel()->Actors.Num(); iActor++ )
+					{
+						AActor* Other = GetLevel()->Actors(iActor);
+						if( !Other || Other->Base!=Mover )
+							continue;
+						Based++;
+						if( Other->LightType!=LT_None || Other->bCorona || Other->bDynamicLight )
+						{
+							Other->bDynamicLight = 1;
+							Other->bLightChanged = 1;
+							Lights++;
+						}
+					}
+					if( (Based || Lights) && AndroidMovingLightLogs < 96 )
+					{
+						debugf( NAME_Log, TEXT("UT99_ANDROID_V326_CITYINTRO_MOVER_BASED_UPDATE count=%i mover=%s based=%i lights=%i loc=%f,%f,%f alpha=%f key=%i"),
+							AndroidMovingLightLogs,
+							Mover->GetFullName(),
+							Based,
+							Lights,
+							Mover->Location.X,
+							Mover->Location.Y,
+							Mover->Location.Z,
+							Mover->PhysAlpha,
+							Mover->KeyNum );
+						AndroidMovingLightLogs++;
+					}
+				}
+#endif
 				if( NewAlpha == 1.0 )
 				{
 					// Just finished moving.

@@ -2,6 +2,7 @@
 #include <ctype.h>
 
 #include "NSDLDrv.h"
+#include "UnCon.h"
 #include "UnRender.h"
 
 #ifndef UT99_ANDROID_VIEWPORT_TRACE
@@ -11,6 +12,7 @@
 #if PLATFORM_ANDROID
 INT GAndroidSDLDrawableX = 0;
 INT GAndroidSDLDrawableY = 0;
+extern UBOOL GAndroidFrontendMenuRequested;
 
 #ifndef UT99_ANDROID_MAX_RENDER_WIDTH
 #define UT99_ANDROID_MAX_RENDER_WIDTH 640
@@ -33,6 +35,33 @@ static void AndroidChooseInternalRenderSize( INT OutputX, INT OutputY, INT& Rend
 
 	RenderX = Max<INT>( 320, appRound( OutputX * Scale ) );
 	RenderY = Max<INT>( 200, appRound( OutputY * Scale ) );
+}
+
+static void AndroidScaleMouseToViewport( INT SizeX, INT SizeY, FLOAT& X, FLOAT& Y )
+{
+	if( GAndroidSDLDrawableX <= 0 || GAndroidSDLDrawableY <= 0 || SizeX <= 0 || SizeY <= 0 )
+		return;
+
+	const FLOAT OldX = X;
+	const FLOAT OldY = Y;
+	X = Clamp( X * (FLOAT)SizeX / (FLOAT)GAndroidSDLDrawableX, 0.0f, (FLOAT)(SizeX - 1) );
+	Y = Clamp( Y * (FLOAT)SizeY / (FLOAT)GAndroidSDLDrawableY, 0.0f, (FLOAT)(SizeY - 1) );
+
+	static INT AndroidMouseScaleLogs = 0;
+	if( AndroidMouseScaleLogs < 24 || (AndroidMouseScaleLogs % 240) == 0 )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V328_MOUSE_SCALE raw=%f,%f scaled=%f,%f output=%ix%i internal=%ix%i count=%i"),
+			OldX,
+			OldY,
+			X,
+			Y,
+			GAndroidSDLDrawableX,
+			GAndroidSDLDrawableY,
+			SizeX,
+			SizeY,
+			AndroidMouseScaleLogs );
+	}
+	AndroidMouseScaleLogs++;
 }
 #endif
 
@@ -1156,8 +1185,52 @@ UBOOL UNSDLViewport::TickInput()
 			}
 			case SDL_MOUSEBUTTONDOWN:
 			case SDL_MOUSEBUTTONUP:
+			{
+				FLOAT MouseX = Ev.button.x;
+				FLOAT MouseY = Ev.button.y;
+#if PLATFORM_ANDROID
+				AndroidScaleMouseToViewport( SizeX, SizeY, MouseX, MouseY );
+				if( Client && Client->Engine )
+				{
+					if( Ev.type == SDL_MOUSEBUTTONDOWN && !GAndroidFrontendMenuRequested )
+					{
+						GAndroidFrontendMenuRequested = 1;
+						debugf( NAME_Log, TEXT("UT99_ANDROID_V329_FRONTEND_MOUSE_REQUEST x=%f y=%f actor=%s console=%s"),
+							MouseX,
+							MouseY,
+							Actor ? Actor->GetFullName() : TEXT("None"),
+							Console ? Console->GetFullName() : TEXT("None") );
+					}
+					bWindowsMouseAvailable = 1;
+					bShowWindowsMouse = 1;
+					if( Actor )
+						Actor->bShowMenu = 1;
+					if( Console )
+						Console->GotoState( FName(TEXT("UWindow")) );
+					Client->Engine->MousePosition( this, 0, MouseX, MouseY );
+					const DWORD ClickFlags = (Ev.button.button == SDL_BUTTON_LEFT ? MOUSE_Left : 0)
+						| (Ev.type == SDL_MOUSEBUTTONDOWN ? MOUSE_FirstHit : MOUSE_LastRelease);
+					Client->Engine->MouseDelta( this, ClickFlags, 0.0f, 0.0f );
+					Client->Engine->Click( this, ClickFlags, MouseX, MouseY );
+					static INT AndroidMouseButtonLogs = 0;
+					if( AndroidMouseButtonLogs < 32 || (AndroidMouseButtonLogs % 120) == 0 )
+					{
+						debugf( NAME_Log, TEXT("UT99_ANDROID_V328_MOUSE_BUTTON type=%i button=%i action=%i x=%f y=%f showMouse=%i showMenu=%i count=%i"),
+							Ev.type,
+							Ev.button.button,
+							(Ev.type == SDL_MOUSEBUTTONDOWN) ? IST_Press : IST_Release,
+							MouseX,
+							MouseY,
+							bShowWindowsMouse,
+							Actor ? Actor->bShowMenu : 0,
+							AndroidMouseButtonLogs );
+					}
+					AndroidMouseButtonLogs++;
+				}
+#endif
 				CauseInputEvent( MouseButtonMap[Ev.button.button], ( Ev.type == SDL_MOUSEBUTTONDOWN ) ? IST_Press : IST_Release );
 				break;
+			}
 			case SDL_MOUSEWHEEL:
 				if( Ev.wheel.y )
 				{
@@ -1215,7 +1288,14 @@ UBOOL UNSDLViewport::TickInput()
 				if( !SDL_GetRelativeMouseMode() )
 				{
 					// If cursor isn't captured, just do MousePosition.
-					Client->Engine->MousePosition( this, 0, Ev.motion.x, Ev.motion.y );
+					FLOAT MouseX = Ev.motion.x;
+					FLOAT MouseY = Ev.motion.y;
+#if PLATFORM_ANDROID
+					AndroidScaleMouseToViewport( SizeX, SizeY, MouseX, MouseY );
+					bWindowsMouseAvailable = 1;
+					bShowWindowsMouse = 1;
+#endif
+					Client->Engine->MousePosition( this, 0, MouseX, MouseY );
 				}
 				else
 				{
