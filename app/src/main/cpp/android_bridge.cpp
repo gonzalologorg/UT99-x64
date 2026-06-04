@@ -113,9 +113,26 @@ static void push_android_button_event(int keyCode, bool down) {
     }
 }
 
-static void push_android_mouse_event(float x, float y, int action) {
+static void push_android_mouse_event(float x, float y, int action, int viewWidth = 0, int viewHeight = 0) {
     SDL_Window* focus = SDL_GetKeyboardFocus();
     const Uint32 windowID = focus ? SDL_GetWindowID(focus) : 0;
+    int windowWidth = 0;
+    int windowHeight = 0;
+    if (focus) {
+        SDL_GetWindowSize(focus, &windowWidth, &windowHeight);
+    }
+    if (viewWidth > 0 && viewHeight > 0 && windowWidth > 0 && windowHeight > 0) {
+        const float oldX = x;
+        const float oldY = y;
+        x = x * static_cast<float>(windowWidth) / static_cast<float>(viewWidth);
+        y = y * static_cast<float>(windowHeight) / static_cast<float>(viewHeight);
+        static int scaleLogCount = 0;
+        if (scaleLogCount < 32 || (scaleLogCount % 240) == 0) {
+            LOGI("UT99_ANDROID_V338_MOUSE_VIEW_SCALE raw=%f,%f scaled=%f,%f view=%dx%d window=%dx%d action=%d count=%d",
+                 oldX, oldY, x, y, viewWidth, viewHeight, windowWidth, windowHeight, action, scaleLogCount);
+        }
+        ++scaleLogCount;
+    }
 
     SDL_Event motion;
     SDL_memset(&motion, 0, sizeof(motion));
@@ -338,16 +355,20 @@ Java_com_ast_ut99_GameActivity_nativeAndroidMouseV327(
         jclass,
         jfloat x,
         jfloat y,
-        jint action) {
+        jint action,
+        jint viewWidth,
+        jint viewHeight) {
     static int logCount = 0;
     if (logCount < 32 || (logCount % 240) == 0) {
-        LOGI("UT99_ANDROID_V327_MOUSE_PUSH x=%f y=%f action=%d count=%d",
+        LOGI("UT99_ANDROID_V327_MOUSE_PUSH x=%f y=%f action=%d view=%dx%d count=%d",
              static_cast<float>(x),
              static_cast<float>(y),
              static_cast<int>(action),
+             static_cast<int>(viewWidth),
+             static_cast<int>(viewHeight),
              logCount);
     }
-    push_android_mouse_event(static_cast<float>(x), static_cast<float>(y), static_cast<int>(action));
+    push_android_mouse_event(static_cast<float>(x), static_cast<float>(y), static_cast<int>(action), static_cast<int>(viewWidth), static_cast<int>(viewHeight));
     ++logCount;
 }
 

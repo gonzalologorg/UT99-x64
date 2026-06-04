@@ -2310,6 +2310,31 @@ UObject* UObject::StaticLoadObject( UClass* ObjectClass, UObject* InOuter, const
 		ResolveName( InOuter, InName, 1, 1 );
 		while( InOuter && InOuter->GetOuter() )//!!can only load top-level packages from files
 			InOuter = InOuter->GetOuter();
+		Result = StaticFindObject( ObjectClass, InOuter, InName );
+#if PLATFORM_ANDROID
+		if( Result )
+		{
+			static INT AndroidStaticLoadCacheHits = 0;
+			if( AndroidStaticLoadCacheHits < 32 || (AndroidStaticLoadCacheHits % 240) == 0 )
+			{
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V333_STATICLOAD_CACHE_HIT class=%s outer=%s name=%s result=%s count=%i"),
+					ObjectClass ? ObjectClass->GetName() : TEXT("None"),
+					InOuter ? InOuter->GetName() : TEXT("None"),
+					InName ? InName : TEXT("None"),
+					Result->GetFullName(),
+					AndroidStaticLoadCacheHits );
+			}
+			AndroidStaticLoadCacheHits++;
+			EndLoad();
+			return Result;
+		}
+#else
+		if( Result )
+		{
+			EndLoad();
+			return Result;
+		}
+#endif
 		if( !(LoadFlags & LOAD_DisallowFiles) )
 			Linker = GetPackageLinker( InOuter, Filename, LoadFlags | LOAD_Throw | LOAD_AllowDll, Sandbox, NULL );
 		//!!this sucks because it supports wildcard sub-package matching of InName, which requires a long search.

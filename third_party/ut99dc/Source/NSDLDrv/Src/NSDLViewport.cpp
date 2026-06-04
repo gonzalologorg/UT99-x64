@@ -63,6 +63,227 @@ static void AndroidScaleMouseToViewport( INT SizeX, INT SizeY, FLOAT& X, FLOAT& 
 	}
 	AndroidMouseScaleLogs++;
 }
+
+static UProperty* AndroidFindConsoleProperty( UConsole* Console, const TCHAR* Name )
+{
+	if( !Console || !Console->GetClass() )
+		return NULL;
+	for( TFieldIterator<UProperty> It(Console->GetClass()); It; ++It )
+		if( appStricmp( It->GetName(), Name ) == 0 )
+			return *It;
+	return NULL;
+}
+
+static UBOOL AndroidMenuFieldNameLooksInteresting( const TCHAR* Name )
+{
+	if( !Name )
+		return 0;
+	return appStrstr( Name, TEXT("Window") )
+		|| appStrstr( Name, TEXT("Menu") )
+		|| appStrstr( Name, TEXT("Root") )
+		|| appStrstr( Name, TEXT("Desktop") )
+		|| appStrstr( Name, TEXT("Console") )
+		|| appStrstr( Name, TEXT("Create") )
+		|| appStrstr( Name, TEXT("Open") )
+		|| appStrstr( Name, TEXT("Close") )
+		|| appStrstr( Name, TEXT("Launch") )
+		|| appStrstr( Name, TEXT("Show") )
+		|| appStrstr( Name, TEXT("Hide") )
+		|| appStrstr( Name, TEXT("Click") )
+		|| appStrstr( Name, TEXT("Mouse") )
+		|| appStrstr( Name, TEXT("Key") );
+}
+
+static void AndroidDumpMenuObjectIntrospection( UObject* Object, const TCHAR* Label )
+{
+	if( !Object || !Object->GetClass() )
+		return;
+
+	static UClass* DumpedClasses[16];
+	static INT DumpedClassCount = 0;
+	for( INT i=0; i<DumpedClassCount; i++ )
+		if( DumpedClasses[i] == Object->GetClass() )
+			return;
+	if( DumpedClassCount < ARRAY_COUNT(DumpedClasses) )
+		DumpedClasses[DumpedClassCount++] = Object->GetClass();
+
+	INT FunctionLogs = 0;
+	for( TFieldIterator<UFunction> It(Object->GetClass()); It && FunctionLogs<96; ++It )
+	{
+		UFunction* Function = *It;
+		if( !Function || !AndroidMenuFieldNameLooksInteresting( Function->GetName() ) )
+			continue;
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V331_MENU_FUNC label=%s object=%s class=%s func=%s full=%s flags=0x%08x parms=%i size=%i"),
+			Label ? Label : TEXT("None"),
+			Object->GetFullName(),
+			Object->GetClass()->GetFullName(),
+			Function->GetName(),
+			Function->GetFullName(),
+			(DWORD)Function->FunctionFlags,
+			(INT)Function->NumParms,
+			(INT)Function->ParmsSize );
+		FunctionLogs++;
+	}
+
+	INT PropertyLogs = 0;
+	for( TFieldIterator<UProperty> It(Object->GetClass()); It && PropertyLogs<96; ++It )
+	{
+		UProperty* Prop = *It;
+		if( !Prop || !AndroidMenuFieldNameLooksInteresting( Prop->GetName() ) )
+			continue;
+		UObjectProperty* ObjProp = Cast<UObjectProperty>( Prop );
+		UBoolProperty* BoolProp = Cast<UBoolProperty>( Prop );
+		if( ObjProp )
+		{
+			UObject* Value = *(UObject**)((BYTE*)Object + Prop->Offset);
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V331_MENU_PROP_OBJ label=%s object=%s class=%s prop=%s propClass=%s offset=%i value=%p valueName=%s"),
+				Label ? Label : TEXT("None"),
+				Object->GetFullName(),
+				Object->GetClass()->GetFullName(),
+				Prop->GetName(),
+				ObjProp->PropertyClass ? ObjProp->PropertyClass->GetName() : TEXT("None"),
+				Prop->Offset,
+				Value,
+				Value ? Value->GetFullName() : TEXT("None") );
+			PropertyLogs++;
+		}
+		else if( BoolProp )
+		{
+			const UBOOL Value = (*(BITFIELD*)((BYTE*)Object + Prop->Offset) & BoolProp->BitMask) != 0;
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V331_MENU_PROP_BOOL label=%s object=%s class=%s prop=%s offset=%i mask=0x%08x value=%i"),
+				Label ? Label : TEXT("None"),
+				Object->GetFullName(),
+				Object->GetClass()->GetFullName(),
+				Prop->GetName(),
+				Prop->Offset,
+				(DWORD)BoolProp->BitMask,
+				Value ? 1 : 0 );
+			PropertyLogs++;
+		}
+	}
+}
+
+static void AndroidLaunchConsoleUWindow( UConsole* Console, const TCHAR* Context )
+{
+	if( !Console || !Console->GetClass() )
+		return;
+
+	UObjectProperty* ConsoleClassProp = Cast<UObjectProperty>( AndroidFindConsoleProperty( Console, TEXT("ConsoleClass") ) );
+	UClass* ConsoleWindowClass = NULL;
+	if( ConsoleClassProp )
+		ConsoleWindowClass = Cast<UClass>( *(UObject**)((BYTE*)Console + ConsoleClassProp->Offset) );
+	if( ConsoleClassProp && !ConsoleWindowClass )
+	{
+		ConsoleWindowClass = UObject::StaticLoadClass( UObject::StaticClass(), NULL, TEXT("UWindow.UWindowConsoleWindow"), NULL, LOAD_NoWarn, NULL );
+		if( ConsoleWindowClass )
+			*(UObject**)((BYTE*)Console + ConsoleClassProp->Offset) = ConsoleWindowClass;
+		static INT AndroidConsoleClassLogs = 0;
+		if( AndroidConsoleClassLogs < 16 )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V335_CONSOLE_CLASS_FIX context=%s class=%p className=%s propOffset=%i count=%i"),
+				Context ? Context : TEXT("None"),
+				ConsoleWindowClass,
+				ConsoleWindowClass ? ConsoleWindowClass->GetFullName() : TEXT("None"),
+				ConsoleClassProp->Offset,
+				AndroidConsoleClassLogs );
+		}
+		AndroidConsoleClassLogs++;
+	}
+
+	UFunction* LaunchFunction = Console->FindFunction( FName(TEXT("LaunchUWindow"), FNAME_Find) );
+	if( !LaunchFunction || LaunchFunction->ParmsSize != 0 )
+		return;
+
+	UObjectProperty* ExistingConsoleWindowProp = Cast<UObjectProperty>( AndroidFindConsoleProperty( Console, TEXT("ConsoleWindow") ) );
+	UObject* ExistingConsoleWindow = ExistingConsoleWindowProp ? *(UObject**)((BYTE*)Console + ExistingConsoleWindowProp->Offset) : NULL;
+	if( ExistingConsoleWindow )
+	{
+		static INT AndroidLaunchSkipLogs = 0;
+		if( AndroidLaunchSkipLogs < 16 || (AndroidLaunchSkipLogs % 120) == 0 )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V337_SKIP_LAUNCH_UWINDOW context=%s consoleWindow=%s count=%i"),
+				Context ? Context : TEXT("None"),
+				ExistingConsoleWindow->GetFullName(),
+				AndroidLaunchSkipLogs );
+		}
+		AndroidLaunchSkipLogs++;
+		return;
+	}
+
+	const DOUBLE StartTime = appSeconds();
+	Console->ProcessEvent( LaunchFunction, NULL );
+
+	UObjectProperty* ConsoleWindowProp = Cast<UObjectProperty>( AndroidFindConsoleProperty( Console, TEXT("ConsoleWindow") ) );
+	UBoolProperty* UWindowTypeProp = Cast<UBoolProperty>( AndroidFindConsoleProperty( Console, TEXT("bUWindowType") ) );
+	UObject* ConsoleWindowValue = ConsoleWindowProp ? *(UObject**)((BYTE*)Console + ConsoleWindowProp->Offset) : NULL;
+	const UBOOL UWindowType = UWindowTypeProp ? ((*(BITFIELD*)((BYTE*)Console + UWindowTypeProp->Offset) & UWindowTypeProp->BitMask) != 0) : 0;
+
+	static INT AndroidLaunchLogs = 0;
+	if( AndroidLaunchLogs < 32 || (AndroidLaunchLogs % 120) == 0 )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V334_LAUNCH_UWINDOW context=%s console=%s state=%s bUWindowType=%i consoleWindow=%p consoleWindowName=%s ms=%f count=%i"),
+			Context ? Context : TEXT("None"),
+			Console->GetFullName(),
+			(Console->GetStateFrame() && Console->GetStateFrame()->StateNode) ? Console->GetStateFrame()->StateNode->GetName() : TEXT("None"),
+			UWindowType ? 1 : 0,
+			ConsoleWindowValue,
+			ConsoleWindowValue ? ConsoleWindowValue->GetFullName() : TEXT("None"),
+			(appSeconds() - StartTime) * 1000.0,
+			AndroidLaunchLogs );
+	}
+	AndroidLaunchLogs++;
+}
+
+static void AndroidForceConsoleUWindowForInput( UConsole* Console, const TCHAR* Context )
+{
+	if( !Console || !Console->GetClass() )
+		return;
+
+	UStrProperty* RootWindowProp = Cast<UStrProperty>( AndroidFindConsoleProperty( Console, TEXT("RootWindow") ) );
+	UBoolProperty* ShowDesktopProp = Cast<UBoolProperty>( AndroidFindConsoleProperty( Console, TEXT("ShowDesktop") ) );
+	UBoolProperty* UWindowActiveProp = Cast<UBoolProperty>( AndroidFindConsoleProperty( Console, TEXT("bUWindowActive") ) );
+	UBoolProperty* CreatedRootProp = Cast<UBoolProperty>( AndroidFindConsoleProperty( Console, TEXT("bCreatedRoot") ) );
+	UObjectProperty* RootProp = Cast<UObjectProperty>( AndroidFindConsoleProperty( Console, TEXT("Root") ) );
+	UObjectProperty* ConsoleWindowProp = Cast<UObjectProperty>( AndroidFindConsoleProperty( Console, TEXT("ConsoleWindow") ) );
+
+	if( RootWindowProp )
+		*(FString*)((BYTE*)Console + RootWindowProp->Offset) = TEXT("UMenu.UMenuRootWindow");
+	if( ShowDesktopProp )
+		*(BITFIELD*)((BYTE*)Console + ShowDesktopProp->Offset) |= ShowDesktopProp->BitMask;
+	if( UWindowActiveProp )
+		*(BITFIELD*)((BYTE*)Console + UWindowActiveProp->Offset) |= UWindowActiveProp->BitMask;
+
+	UObject* RootValue = RootProp ? *(UObject**)((BYTE*)Console + RootProp->Offset) : NULL;
+	if( CreatedRootProp && !RootValue )
+		*(BITFIELD*)((BYTE*)Console + CreatedRootProp->Offset) &= ~CreatedRootProp->BitMask;
+
+	UObject* ConsoleWindowValue = ConsoleWindowProp ? *(UObject**)((BYTE*)Console + ConsoleWindowProp->Offset) : NULL;
+	const UBOOL CreatedRoot = CreatedRootProp ? ((*(BITFIELD*)((BYTE*)Console + CreatedRootProp->Offset) & CreatedRootProp->BitMask) != 0) : 0;
+	const UBOOL ShowDesktop = ShowDesktopProp ? ((*(BITFIELD*)((BYTE*)Console + ShowDesktopProp->Offset) & ShowDesktopProp->BitMask) != 0) : 0;
+	const UBOOL UWindowActive = UWindowActiveProp ? ((*(BITFIELD*)((BYTE*)Console + UWindowActiveProp->Offset) & UWindowActiveProp->BitMask) != 0) : 0;
+
+	static INT AndroidConsoleInputLogs = 0;
+	if( AndroidConsoleInputLogs < 32 || (AndroidConsoleInputLogs % 120) == 0 )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V330_CONSOLE_INPUT_FIX context=%s console=%s state=%s rootWindow=%s showDesktop=%i uWindowActive=%i createdRoot=%i root=%p rootName=%s consoleWindow=%p consoleWindowName=%s count=%i"),
+			Context ? Context : TEXT("None"),
+			Console->GetFullName(),
+			(Console->GetStateFrame() && Console->GetStateFrame()->StateNode) ? Console->GetStateFrame()->StateNode->GetName() : TEXT("None"),
+			RootWindowProp ? **(FString*)((BYTE*)Console + RootWindowProp->Offset) : TEXT("None"),
+			ShowDesktop ? 1 : 0,
+			UWindowActive ? 1 : 0,
+			CreatedRoot ? 1 : 0,
+			RootValue,
+			RootValue ? RootValue->GetFullName() : TEXT("None"),
+			ConsoleWindowValue,
+			ConsoleWindowValue ? ConsoleWindowValue->GetFullName() : TEXT("None"),
+			AndroidConsoleInputLogs );
+	}
+	if( RootValue )
+		AndroidDumpMenuObjectIntrospection( RootValue, TEXT("Root") );
+	AndroidDumpMenuObjectIntrospection( Console, TEXT("Console") );
+	AndroidConsoleInputLogs++;
+}
 #endif
 
 IMPLEMENT_CLASS( UNSDLViewport );
@@ -1206,7 +1427,11 @@ UBOOL UNSDLViewport::TickInput()
 					if( Actor )
 						Actor->bShowMenu = 1;
 					if( Console )
+					{
+						AndroidForceConsoleUWindowForInput( Console, TEXT("MouseButton") );
 						Console->GotoState( FName(TEXT("UWindow")) );
+						AndroidLaunchConsoleUWindow( Console, TEXT("MouseButton") );
+					}
 					Client->Engine->MousePosition( this, 0, MouseX, MouseY );
 					const DWORD ClickFlags = (Ev.button.button == SDL_BUTTON_LEFT ? MOUSE_Left : 0)
 						| (Ev.type == SDL_MOUSEBUTTONDOWN ? MOUSE_FirstHit : MOUSE_LastRelease);

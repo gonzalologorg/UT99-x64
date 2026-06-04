@@ -107,7 +107,7 @@ public class GameActivity extends SDLActivity {
     private static native boolean nativePrepareProcess(String dataRoot, String homeDir);
     private static native void nativeAndroidTextV82(String text);
     private static native boolean nativeAndroidIsMenuV92(); // UT99_ANDROID_V92_TOUCH_OVERLAY
-    private static native void nativeAndroidMouseV327(float x, float y, int action);
+    private static native void nativeAndroidMouseV327(float x, float y, int action, int viewWidth, int viewHeight);
     private static volatile boolean sUt99FrontendMenuModeV327 = false;
 
     private File dataRoot;
@@ -530,19 +530,19 @@ public class GameActivity extends SDLActivity {
                 "[UMenu.UnrealConsole]\n" +
                 "RootWindow=UMenu.UMenuRootWindow\n" +
                 "UWindowKey=IK_Escape\n" +
-                "ShowDesktop=False\n" +
+                "ShowDesktop=True\n" +
                 "bShowConsole=False\n" +
                 "\n" +
                 "[UWindow.WindowConsole]\n" +
                 "RootWindow=UMenu.UMenuRootWindow\n" +
                 "UWindowKey=IK_Escape\n" +
-                "ShowDesktop=False\n" +
+                "ShowDesktop=True\n" +
                 "bShowConsole=False\n" +
                 "\n" +
                 "[UTMenu.UTConsole]\n" +
                 "RootWindow=UMenu.UMenuRootWindow\n" +
                 "UWindowKey=IK_Escape\n" +
-                "ShowDesktop=False\n" +
+                "ShowDesktop=True\n" +
                 "bShowConsole=False\n";
         try {
             java.io.FileWriter fw = new java.io.FileWriter(ini, true);
@@ -606,19 +606,19 @@ public class GameActivity extends SDLActivity {
                 "[UMenu.UnrealConsole]\n" +
                 "RootWindow=UMenu.UMenuRootWindow\n" +
                 "UWindowKey=IK_Escape\n" +
-                "ShowDesktop=False\n" +
+                "ShowDesktop=True\n" +
                 "bShowConsole=False\n" +
                 "\n" +
                 "[UWindow.WindowConsole]\n" +
                 "RootWindow=UMenu.UMenuRootWindow\n" +
                 "UWindowKey=IK_Escape\n" +
-                "ShowDesktop=False\n" +
+                "ShowDesktop=True\n" +
                 "bShowConsole=False\n" +
                 "\n" +
                 "[UTMenu.UTConsole]\n" +
                 "RootWindow=UMenu.UMenuRootWindow\n" +
                 "UWindowKey=IK_Escape\n" +
-                "ShowDesktop=False\n" +
+                "ShowDesktop=True\n" +
                 "bShowConsole=False\n";
 
         appendTextToFileV40(new java.io.File(systemDir, "AndroidUT99.ini"), inputBlock);
@@ -662,8 +662,8 @@ public class GameActivity extends SDLActivity {
                 String text = new String(bytes.toByteArray(), "UTF-8");
                 String fixed = text
                         .replace("UWindowKey=IK_Esc", "UWindowKey=IK_Escape")
-                        .replace("ShowDesktop=True", "ShowDesktop=False")
-                        .replace("ShowDesktop=true", "ShowDesktop=False");
+                        .replace("ShowDesktop=False", "ShowDesktop=True")
+                        .replace("ShowDesktop=false", "ShowDesktop=True");
                 if (!fixed.equals(text)) {
                     java.io.FileOutputStream out = new java.io.FileOutputStream(file, false);
                     try {
@@ -1053,13 +1053,13 @@ public class GameActivity extends SDLActivity {
         String block =
                 "\n" +
                 "; UT99_ANDROID_SAFEAREA_LOOK_LOGO_V45\n" +
-                "; Hide oversized tiled UMenu desktop logo on Android handhelds.\n" +
+                "; Keep UMenu desktop visible; this is the actual UT frontend surface.\n" +
                 "[UWindow.WindowConsole]\n" +
-                "ShowDesktop=False\n" +
+                "ShowDesktop=True\n" +
                 "[UMenu.UnrealConsole]\n" +
-                "ShowDesktop=False\n" +
+                "ShowDesktop=True\n" +
                 "[UTMenu.UTConsole]\n" +
-                "ShowDesktop=False\n" +
+                "ShowDesktop=True\n" +
                 "[Engine.Input]\n" +
                 "MouseX=Axis aMouseX Speed=2.8\n" +
                 "MouseY=Axis aMouseY Speed=2.2\n";
@@ -1551,16 +1551,19 @@ public class GameActivity extends SDLActivity {
         if (ev != null && sUt99FrontendMenuModeV327) {
             int action = ev.getActionMasked();
             int index = ev.getActionIndex();
+            android.view.View decor = getWindow() != null ? getWindow().getDecorView() : null;
+            int viewWidth = decor != null ? decor.getWidth() : 0;
+            int viewHeight = decor != null ? decor.getHeight() : 0;
             if (action == android.view.MotionEvent.ACTION_DOWN
                     || action == android.view.MotionEvent.ACTION_POINTER_DOWN
                     || action == android.view.MotionEvent.ACTION_UP
                     || action == android.view.MotionEvent.ACTION_POINTER_UP
                     || action == android.view.MotionEvent.ACTION_CANCEL) {
-                nativeAndroidMouseV327(ev.getX(index), ev.getY(index), action);
+                nativeAndroidMouseV327(ev.getX(index), ev.getY(index), action, viewWidth, viewHeight);
                 return true;
             }
             if (action == android.view.MotionEvent.ACTION_MOVE) {
-                nativeAndroidMouseV327(ev.getX(0), ev.getY(0), action);
+                nativeAndroidMouseV327(ev.getX(0), ev.getY(0), action, viewWidth, viewHeight);
                 return true;
             }
         }

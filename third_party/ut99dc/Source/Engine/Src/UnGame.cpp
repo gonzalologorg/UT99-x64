@@ -184,6 +184,107 @@ static void AndroidForceConsoleFrontendDefaults( UConsole* Console )
 		ShowDesktopProp ? ShowDesktopProp->Offset : -1 );
 	unguard;
 }
+
+static UBOOL AndroidIsFrontendMap( ULevel* Level )
+{
+	guard(AndroidIsFrontendMap);
+	if( !Level || !Level->GetOuter() )
+		return 0;
+	return appStricmp( Level->GetOuter()->GetName(), TEXT("UT-Logo-Map") ) == 0
+		|| appStricmp( Level->GetOuter()->GetName(), TEXT("Entry") ) == 0;
+	unguard;
+}
+
+static void AndroidWarmFrontendMenuAssets( UViewport* Viewport )
+{
+	guard(AndroidWarmFrontendMenuAssets);
+	ULevel* ViewLevel = (Viewport && Viewport->Actor) ? Viewport->Actor->GetLevel() : NULL;
+	if( !Viewport || !Viewport->Console )
+		return;
+
+	static UBOOL bWarmed = 0;
+	if( bWarmed )
+		return;
+	bWarmed = 1;
+
+	const DOUBLE StartTime = appSeconds();
+	INT LoadedClasses = 0;
+	INT LoadedObjects = 0;
+
+	const TCHAR* ClassNames[] =
+	{
+		TEXT("UMenu.UMenuRootWindow"),
+		TEXT("UMenu.UMenuMenuBar"),
+		TEXT("UMenu.UMenuBlueLookAndFeel"),
+		TEXT("UTMenu.UTGameMenu"),
+		TEXT("UTMenu.UTMultiplayerMenu"),
+		TEXT("UTMenu.UTOptionsMenu"),
+		TEXT("UTMenu.UTFadeTextArea"),
+		TEXT("UTMenu.UTConsole"),
+		TEXT("UWindow.WindowConsole")
+	};
+	for( INT i=0; i<ARRAY_COUNT(ClassNames); i++ )
+	{
+		if( UObject::StaticLoadClass( UObject::StaticClass(), NULL, ClassNames[i], NULL, LOAD_NoWarn, NULL ) )
+			LoadedClasses++;
+	}
+
+	const TCHAR* ObjectNames[] =
+	{
+		TEXT("Engine.SmallFont"),
+		TEXT("Engine.MedFont"),
+		TEXT("UWindowFonts.Tahoma10"),
+		TEXT("UWindowFonts.Tahoma20"),
+		TEXT("LadderFonts.UTLadder12"),
+		TEXT("LadderFonts.UTLadder18"),
+		TEXT("Engine.ConsoleBack"),
+		TEXT("Engine.Border"),
+		TEXT("UMenu.WindowOpen"),
+		TEXT("UMenu.LittleSelect"),
+		TEXT("UMenu.BigSelect")
+	};
+	for( INT i=0; i<ARRAY_COUNT(ObjectNames); i++ )
+	{
+		if( UObject::StaticLoadObject( UObject::StaticClass(), NULL, ObjectNames[i], NULL, LOAD_NoWarn, NULL ) )
+			LoadedObjects++;
+	}
+
+	AndroidForceConsoleFrontendDefaults( Viewport->Console );
+	UObjectProperty* ConsoleClassProp = Cast<UObjectProperty>( FindNativeProperty( Viewport->Console->GetClass(), TEXT("ConsoleClass") ) );
+	UClass* ConsoleWindowClass = ConsoleClassProp ? Cast<UClass>( *(UObject**)((BYTE*)Viewport->Console + ConsoleClassProp->Offset) ) : NULL;
+	if( ConsoleClassProp && !ConsoleWindowClass )
+	{
+		ConsoleWindowClass = UObject::StaticLoadClass( UObject::StaticClass(), NULL, TEXT("UWindow.UWindowConsoleWindow"), NULL, LOAD_NoWarn, NULL );
+		if( ConsoleWindowClass )
+			*(UObject**)((BYTE*)Viewport->Console + ConsoleClassProp->Offset) = ConsoleWindowClass;
+	}
+	const UBOOL bFrontendMap = AndroidIsFrontendMap(ViewLevel);
+	if( bFrontendMap )
+	{
+		GAndroidFrontendMenuRequested = 1;
+		if( Viewport->Actor )
+			Viewport->Actor->bShowMenu = 1;
+		Viewport->Console->GotoState( FName(TEXT("UWindow")) );
+	}
+
+	UFunction* LaunchFunction = Viewport->Console->FindFunction( FName(TEXT("LaunchUWindow"), FNAME_Find) );
+	if( bFrontendMap && LaunchFunction && LaunchFunction->ParmsSize == 0 )
+		Viewport->Console->ProcessEvent( LaunchFunction, NULL );
+
+	debugf( NAME_Init, TEXT("UT99_ANDROID_V332_FRONTEND_MENU_WARMUP classes=%i/%i objects=%i/%i frontend=%i launch=%i consoleClass=%s rootMap=%s ms=%f console=%s actor=%s"),
+		LoadedClasses,
+		(INT)ARRAY_COUNT(ClassNames),
+		LoadedObjects,
+		(INT)ARRAY_COUNT(ObjectNames),
+		bFrontendMap ? 1 : 0,
+		(bFrontendMap && LaunchFunction) ? 1 : 0,
+		ConsoleWindowClass ? ConsoleWindowClass->GetFullName() : TEXT("None"),
+		ViewLevel && ViewLevel->GetOuter() ? ViewLevel->GetOuter()->GetName() : TEXT("None"),
+		(appSeconds() - StartTime) * 1000.0,
+		Viewport->Console->GetFullName(),
+		Viewport->Actor ? Viewport->Actor->GetFullName() : TEXT("None") );
+	unguard;
+}
 #endif
 
 static void FixupNativeBoolBlockOffset( UClass* Class, const TCHAR* Label, const TCHAR** Names, INT Count, INT Offset );
@@ -1315,6 +1416,9 @@ void UGameEngine::Init()
 		debugf( NAME_Init, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE input initialized opening window") );
 		Viewport->OpenWindow( 0, 0, (INT) INDEX_NONE, (INT) INDEX_NONE, (INT) INDEX_NONE, (INT) INDEX_NONE );
 		debugf( NAME_Init, TEXT("UT99_ANDROID_V141_VIEWPORT_TRACE OpenWindow returned Size=%ix%i RenDev=%i"), Viewport->SizeX, Viewport->SizeY, Viewport->RenDev != NULL );
+#if PLATFORM_ANDROID
+		AndroidWarmFrontendMenuAssets( Viewport );
+#endif
 		GLevel->DetailChange( Viewport->RenDev->HighDetailActors );
 		InitAudio();
 		if( Audio )
@@ -3191,6 +3295,30 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 			GLevel->GetLevelInfo()->bDropDetail = (DeltaSeconds > 1.f/Clamp(Client->MinDesiredFrameRate,1.f,100.f));
 			GLevel->GetLevelInfo()->bAggressiveLOD = (DeltaSeconds > 1.f/Clamp(Client->MinDesiredFrameRate - 5.f,1.f,100.f));;
 		}
+#if PLATFORM_ANDROID
+		UBOOL bAndroidFrontendUiActive =
+			GAndroidFrontendMenuRequested
+		&&	Client
+		&&	Client->Viewports.Num()
+		&&	Client->Viewports(0)
+		&&	( Client->Viewports(0)->bShowWindowsMouse || (Client->Viewports(0)->Actor && Client->Viewports(0)->Actor->bShowMenu) );
+		if( bAndroidFrontendUiActive )
+		{
+			static INT AndroidSkipFrontendLevelTickLogs = 0;
+			if( AndroidSkipFrontendLevelTickLogs < 16 || (AndroidSkipFrontendLevelTickLogs % 240) == 0 )
+			{
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V339_SKIP_FRONTEND_LEVEL_TICK level=%s delta=%f actor=%s mouse=%i showMenu=%i count=%i"),
+					GLevel->GetOuter() ? GLevel->GetOuter()->GetName() : TEXT("None"),
+					DeltaSeconds,
+					Client->Viewports(0)->Actor ? Client->Viewports(0)->Actor->GetFullName() : TEXT("None"),
+					Client->Viewports(0)->bShowWindowsMouse ? 1 : 0,
+					(Client->Viewports(0)->Actor && Client->Viewports(0)->Actor->bShowMenu) ? 1 : 0,
+					AndroidSkipFrontendLevelTickLogs );
+			}
+			AndroidSkipFrontendLevelTickLogs++;
+		}
+		else
+#endif
 		// tick the level
 		GLevel->Tick( LEVELTICK_All, DeltaSeconds );
 	}
@@ -3288,12 +3416,26 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 		}
 		else if( Viewport->bTravelItems )
 		{
-			debugf( TEXT("Export travel for: %s"), *Viewport->Actor->PlayerReplicationInfo->PlayerName );
-			FStringOutputDevice PlayerTravelInfo;
-			ExportTravel( PlayerTravelInfo, Viewport->Actor );
-			for( AActor* Inv=Viewport->Actor->Inventory; Inv; Inv=Inv->Inventory )
-				ExportTravel( PlayerTravelInfo, Inv );
-			TravelInfo.Set( *Viewport->Actor->PlayerReplicationInfo->PlayerName, *PlayerTravelInfo );
+			if( Viewport->Actor && Viewport->Actor->PlayerReplicationInfo )
+			{
+				debugf( TEXT("Export travel for: %s"), *Viewport->Actor->PlayerReplicationInfo->PlayerName );
+				FStringOutputDevice PlayerTravelInfo;
+				ExportTravel( PlayerTravelInfo, Viewport->Actor );
+				for( AActor* Inv=Viewport->Actor->Inventory; Inv; Inv=Inv->Inventory )
+					ExportTravel( PlayerTravelInfo, Inv );
+				TravelInfo.Set( *Viewport->Actor->PlayerReplicationInfo->PlayerName, *PlayerTravelInfo );
+			}
+#if PLATFORM_ANDROID
+			else
+			{
+				debugf( NAME_Warning, TEXT("UT99_ANDROID_V336_SKIP_BAD_TRAVEL_ITEMS url=%s actor=%s pri=%p level=%s"),
+					*Viewport->TravelURL,
+					Viewport->Actor ? Viewport->Actor->GetFullName() : TEXT("None"),
+					Viewport->Actor ? Viewport->Actor->PlayerReplicationInfo : NULL,
+					GLevel && GLevel->GetOuter() ? GLevel->GetOuter()->GetName() : TEXT("None") );
+				Viewport->bTravelItems = 0;
+			}
+#endif
 		}
 		FString Error;
 		debugf( NAME_Log, TEXT("UT99_ANDROID_V275_CLIENT_TRAVEL_BEGIN url=%s type=%i actor=%s"),
