@@ -12,6 +12,53 @@ Revision history:
 
 #if PLATFORM_ANDROID
 extern UBOOL GAndroidFrontendMenuRequested;
+extern INT GAndroidInFrontendConsolePostRender;
+
+static void AndroidTrackFrontendCanvasNative( const TCHAR* Name, DOUBLE Ms )
+{
+	guardSlow(AndroidTrackFrontendCanvasNative);
+	if( !GAndroidInFrontendConsolePostRender )
+		return;
+	struct FAndroidCanvasTiming
+	{
+		const TCHAR* Name;
+		INT Calls;
+		DOUBLE TotalMs;
+		DOUBLE MaxMs;
+	};
+	static FAndroidCanvasTiming Timings[] =
+	{
+		{ TEXT("DrawText"),        0, 0.0, 0.0 },
+		{ TEXT("DrawTile"),        0, 0.0, 0.0 },
+		{ TEXT("DrawTileClipped"), 0, 0.0, 0.0 },
+		{ TEXT("DrawTextClipped"), 0, 0.0, 0.0 },
+		{ TEXT("TextSize"),        0, 0.0, 0.0 },
+	};
+	for( INT i=0; i<ARRAY_COUNT(Timings); i++ )
+	{
+		if( appStricmp( Timings[i].Name, Name ) == 0 )
+		{
+			Timings[i].Calls++;
+			Timings[i].TotalMs += Ms;
+			Timings[i].MaxMs = Max( Timings[i].MaxMs, Ms );
+			static INT AndroidFrontendCanvasLogs = 0;
+			if( (Ms >= 25.0 || Timings[i].Calls % 512 == 0) && AndroidFrontendCanvasLogs < 256 )
+			{
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V349_FRONTEND_CANVAS_NATIVE name=%s calls=%i totalMs=%f avgMs=%f maxMs=%f lastMs=%f count=%i"),
+					Timings[i].Name,
+					Timings[i].Calls,
+					Timings[i].TotalMs,
+					Timings[i].Calls ? Timings[i].TotalMs / Timings[i].Calls : 0.0,
+					Timings[i].MaxMs,
+					Ms,
+					AndroidFrontendCanvasLogs );
+				AndroidFrontendCanvasLogs++;
+			}
+			break;
+		}
+	}
+	unguardSlow;
+}
 #endif
 
 static UBOOL IsKnownCanvasObject( UObject* Object )
@@ -610,6 +657,9 @@ IMPLEMENT_FUNCTION( UCanvas, 464, execStrLen );
 void UCanvas::execDrawText( FFrame& Stack, RESULT_DECL )
 {
 	guard(UCanvas::execDrawText);
+#if PLATFORM_ANDROID
+	const DOUBLE AndroidCanvasNativeStart = GAndroidInFrontendConsolePostRender ? appSeconds() : 0.0;
+#endif
 	P_GET_STR(InText);
 	P_GET_UBOOL_OPTX(CR,1);
 	P_FINISH;
@@ -629,6 +679,10 @@ void UCanvas::execDrawText( FFrame& Stack, RESULT_DECL )
 		CurY += CurYL;
 		CurYL = 0;
 	}
+#if PLATFORM_ANDROID
+	if( AndroidCanvasNativeStart )
+		AndroidTrackFrontendCanvasNative( TEXT("DrawText"), (appSeconds() - AndroidCanvasNativeStart) * 1000.0 );
+#endif
 
 	unguardexec;
 }
@@ -637,6 +691,9 @@ IMPLEMENT_FUNCTION( UCanvas, 465, execDrawText );
 void UCanvas::execDrawTile( FFrame& Stack, RESULT_DECL )
 {
 	guard(UCanvas::execDrawTile);
+#if PLATFORM_ANDROID
+	const DOUBLE AndroidCanvasNativeStart = GAndroidInFrontendConsolePostRender ? appSeconds() : 0.0;
+#endif
 	P_GET_OBJECT(UTexture,Tex);
 	P_GET_FLOAT(XL);
 	P_GET_FLOAT(YL);
@@ -669,6 +726,10 @@ void UCanvas::execDrawTile( FFrame& Stack, RESULT_DECL )
 	);
 	CurX += XL + SpaceX;
 	CurYL = Max(CurYL,YL);
+#if PLATFORM_ANDROID
+	if( AndroidCanvasNativeStart )
+		AndroidTrackFrontendCanvasNative( TEXT("DrawTile"), (appSeconds() - AndroidCanvasNativeStart) * 1000.0 );
+#endif
 	unguardexec;
 }
 IMPLEMENT_FUNCTION( UCanvas, 466, execDrawTile );
@@ -760,6 +821,9 @@ IMPLEMENT_FUNCTION( UCanvas, 471, execDrawClippedActor );
 void UCanvas::execDrawTileClipped( FFrame& Stack, RESULT_DECL )
 {
 	guard(UCanvas::execDrawTileClipped);
+#if PLATFORM_ANDROID
+	const DOUBLE AndroidCanvasNativeStart = GAndroidInFrontendConsolePostRender ? appSeconds() : 0.0;
+#endif
 	P_GET_OBJECT(UTexture,Tex);
 	P_GET_FLOAT(XL);
 	P_GET_FLOAT(YL);
@@ -808,6 +872,10 @@ void UCanvas::execDrawTileClipped( FFrame& Stack, RESULT_DECL )
 		CurX += XL + SpaceX;
 		CurYL = Max(CurYL,YL);
 	}
+#if PLATFORM_ANDROID
+	if( AndroidCanvasNativeStart )
+		AndroidTrackFrontendCanvasNative( TEXT("DrawTileClipped"), (appSeconds() - AndroidCanvasNativeStart) * 1000.0 );
+#endif
 
 	unguardexec;
 }
@@ -816,6 +884,9 @@ IMPLEMENT_FUNCTION( UCanvas, 468, execDrawTileClipped );
 void UCanvas::execDrawTextClipped( FFrame& Stack, RESULT_DECL )
 {
 	guard(UCanvas::execDrawTextClipped);
+#if PLATFORM_ANDROID
+	const DOUBLE AndroidCanvasNativeStart = GAndroidInFrontendConsolePostRender ? appSeconds() : 0.0;
+#endif
 	P_GET_STR(InText);
 	P_GET_UBOOL_OPTX(CheckHotKey, 0);
 	P_FINISH;
@@ -840,6 +911,10 @@ void UCanvas::execDrawTextClipped( FFrame& Stack, RESULT_DECL )
 
 	FPlane DrawColor = Color.Plane();
 	DrawString( PolyFlags, this, Font, (INT) CurX, (INT) CurY, *InText, DrawColor, 1, CheckHotKey );
+#if PLATFORM_ANDROID
+	if( AndroidCanvasNativeStart )
+		AndroidTrackFrontendCanvasNative( TEXT("DrawTextClipped"), (appSeconds() - AndroidCanvasNativeStart) * 1000.0 );
+#endif
 
 	unguardexec;
 }
@@ -848,6 +923,9 @@ IMPLEMENT_FUNCTION( UCanvas, 469, execDrawTextClipped );
 void UCanvas::execTextSize( FFrame& Stack, RESULT_DECL )
 {
 	guard(UCanvas::execTextSize);
+#if PLATFORM_ANDROID
+	const DOUBLE AndroidCanvasNativeStart = GAndroidInFrontendConsolePostRender ? appSeconds() : 0.0;
+#endif
 	P_GET_STR(InText);
 	P_GET_FLOAT_REF(XL);
 	P_GET_FLOAT_REF(YL);
@@ -874,6 +952,10 @@ void UCanvas::execTextSize( FFrame& Stack, RESULT_DECL )
 	
 	*XL = XLi;
 	*YL = YLi;
+#if PLATFORM_ANDROID
+	if( AndroidCanvasNativeStart )
+		AndroidTrackFrontendCanvasNative( TEXT("TextSize"), (appSeconds() - AndroidCanvasNativeStart) * 1000.0 );
+#endif
 
 	unguardexec;
 }

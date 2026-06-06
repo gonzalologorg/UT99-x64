@@ -284,6 +284,24 @@ void UObject::execUndefined( FFrame& Stack, RESULT_DECL  )
 {
 	guardSlow(UObject::execUndefined);
 
+#if PLATFORM_ANDROID
+	extern UBOOL GAndroidFrontendMenuRequested;
+	if( GAndroidFrontendMenuRequested )
+	{
+		static INT AndroidUndefinedFrontendLogs = 0;
+		if( AndroidUndefinedFrontendLogs < 64 )
+		{
+			debugf( NAME_Warning, TEXT("UT99_ANDROID_V344_FRONTEND_UNDEFINED_SKIP object=%s node=%s token=%02X count=%i"),
+				Stack.Object ? Stack.Object->GetFullName() : TEXT("None"),
+				Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
+				Stack.Code ? Stack.Code[-1] : 0,
+				AndroidUndefinedFrontendLogs );
+		}
+		AndroidUndefinedFrontendLogs++;
+		return;
+	}
+#endif
+
 	if( Stack.Code[-1] == 0x77 )
 	{
 		debugf( NAME_Warning, TEXT("UT99_ANDROID_V146_NATIVE_FALLBACK token=77 using execNotEqual_ObjectObject") );
@@ -3904,8 +3922,48 @@ void UObject::CallFunction( FFrame& Stack, RESULT_DECL, UFunction* Function )
 #if DO_GUARD_SLOW
 	DWORD Cycles=0; clock(Cycles);
 #endif
+#if PLATFORM_ANDROID
+	extern INT GAndroidInFrontendConsolePostRender;
+	const DOUBLE AndroidFrontendCallStart = GAndroidInFrontendConsolePostRender ? appSeconds() : 0.0;
+#endif
 #if defined(__ANDROID__) && defined(UT99_ANDROID_SCRIPT_TIMING_TRACE)
 	const DOUBLE AndroidCallStart = appSeconds();
+#endif
+#if PLATFORM_ANDROID
+	extern UBOOL GAndroidFrontendMenuRequested;
+	if
+	(	GAndroidFrontendMenuRequested
+	&&	Function
+	&&	Function->GetFName() == FName(TEXT("IterateMaps"), FNAME_Find)
+	&&	Function->GetOuter()
+	&&	appStrstr( Function->GetOuter()->GetName(), TEXT("StartMatch") ) )
+	{
+		if( Stack.Node && Stack.Code )
+		{
+			BYTE* ScriptStart = &Stack.Node->Script(0);
+			BYTE* ScriptEnd = ScriptStart + Stack.Node->Script.Num();
+			INT Scanned = 0;
+			while( Stack.Code < ScriptEnd && *Stack.Code != EX_EndFunctionParms && Scanned < 512 )
+			{
+				Stack.Code++;
+				Scanned++;
+			}
+			if( Stack.Code < ScriptEnd && *Stack.Code == EX_EndFunctionParms )
+				Stack.Code++;
+			static INT AndroidSkipIterateMapsLogs = 0;
+			if( AndroidSkipIterateMapsLogs < 64 )
+			{
+				debugf( NAME_Warning, TEXT("UT99_ANDROID_V347_SKIP_FRONTEND_ITERATEMAPS object=%s function=%s caller=%s scanned=%i count=%i"),
+					GetFullName(),
+					Function->GetFullName(),
+					Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
+					Scanned,
+					AndroidSkipIterateMapsLogs );
+			}
+			AndroidSkipIterateMapsLogs++;
+		}
+		return;
+	}
 #endif
 	// Found it.
 	UBOOL SkipIt = 0;
@@ -3987,6 +4045,27 @@ void UObject::CallFunction( FFrame& Stack, RESULT_DECL, UFunction* Function )
 		}
 	}
 #endif
+#if PLATFORM_ANDROID
+	if( AndroidFrontendCallStart )
+	{
+		static INT AndroidFrontendSlowCallLogs = 0;
+		const DOUBLE AndroidFrontendCallMs = (appSeconds() - AndroidFrontendCallStart) * 1000.0;
+		if( AndroidFrontendCallMs >= 25.0 && AndroidFrontendSlowCallLogs < 256 )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V348_FRONTEND_SLOW_CALL ms=%f object=%s function=%s caller=%s native=%i flags=0x%08x parms=%i props=%i count=%i"),
+				AndroidFrontendCallMs,
+				GetFullName(),
+				Function ? Function->GetFullName() : TEXT("None"),
+				Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
+				Function ? Function->iNative : 0,
+				Function ? Function->FunctionFlags : 0,
+				Function ? Function->ParmsSize : 0,
+				Function ? Function->PropertiesSize : 0,
+				AndroidFrontendSlowCallLogs );
+			AndroidFrontendSlowCallLogs++;
+		}
+	}
+#endif
 	unguardSlow;
 }
 
@@ -3997,6 +4076,16 @@ void UObject::CallFunction( FFrame& Stack, RESULT_DECL, UFunction* Function )
 void UObject::ProcessInternal( FFrame& Stack, RESULT_DECL )
 {
 	guardSlow(UObject::ProcessInternal);
+#if PLATFORM_ANDROID
+	extern INT GAndroidInFrontendConsolePostRender;
+	const UBOOL AndroidTraceFrontendProcess =
+	(	GAndroidInFrontendConsolePostRender
+	&&	Stack.Node
+	&&	appStrstr( Stack.Node->GetFullName(), TEXT("WindowConsole.UWindow.PostRender") ) );
+	const DOUBLE AndroidFrontendProcessStart = AndroidTraceFrontendProcess ? appSeconds() : 0.0;
+	INT AndroidFrontendProcessSteps = 0;
+	BYTE AndroidFrontendLastOpcode = 0;
+#endif
 	DWORD SingularFlag = ((UFunction*)Stack.Node)->FunctionFlags & FUNC_Singular;
 	if
 	(	!ProcessRemoteFunction( (UFunction*)Stack.Node, Stack.Locals, NULL )
@@ -4011,9 +4100,45 @@ void UObject::ProcessInternal( FFrame& Stack, RESULT_DECL )
 			Stack.Logf( NAME_Critical, TEXT("Infinite script recursion (%i calls) detected"), RECURSE_LIMIT );
 #endif
 		while( *Stack.Code != EX_Return )
+		{
+#if PLATFORM_ANDROID
+			if( AndroidTraceFrontendProcess )
+			{
+				AndroidFrontendLastOpcode = *Stack.Code;
+				AndroidFrontendProcessSteps++;
+				if( AndroidFrontendProcessSteps == 8192 || AndroidFrontendProcessSteps == 32768 || AndroidFrontendProcessSteps == 131072 )
+				{
+					debugf( NAME_Log, TEXT("UT99_ANDROID_V350_FRONTEND_POST_VM_PROGRESS object=%s node=%s steps=%i opcode=0x%02x elapsedMs=%f"),
+						GetFullName(),
+						Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
+						AndroidFrontendProcessSteps,
+						AndroidFrontendLastOpcode,
+						(appSeconds() - AndroidFrontendProcessStart) * 1000.0 );
+				}
+			}
+#endif
 			Stack.Step( Stack.Object, Buffer );
+		}
 		Stack.Code++;
 		Stack.Step( Stack.Object, Result );
+#if PLATFORM_ANDROID
+		if( AndroidTraceFrontendProcess )
+		{
+			static INT AndroidFrontendProcessLogs = 0;
+			const DOUBLE AndroidFrontendProcessMs = (appSeconds() - AndroidFrontendProcessStart) * 1000.0;
+			if( (AndroidFrontendProcessMs >= 25.0 || AndroidFrontendProcessSteps >= 8192) && AndroidFrontendProcessLogs < 128 )
+			{
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V350_FRONTEND_POST_VM_DONE object=%s node=%s steps=%i lastOpcode=0x%02x ms=%f count=%i"),
+					GetFullName(),
+					Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
+					AndroidFrontendProcessSteps,
+					AndroidFrontendLastOpcode,
+					AndroidFrontendProcessMs,
+					AndroidFrontendProcessLogs );
+				AndroidFrontendProcessLogs++;
+			}
+		}
+#endif
 		ObjectFlags &= ~SingularFlag;
 #if DO_GUARD
 		--Recurse;
@@ -4028,6 +4153,10 @@ void UObject::ProcessInternal( FFrame& Stack, RESULT_DECL )
 void UObject::ProcessEvent( UFunction* Function, void* Parms, void* UnusedResult )
 {
 	guard(UObject::ProcessEvent);
+#if PLATFORM_ANDROID
+	extern INT GAndroidInFrontendConsolePostRender;
+	const DOUBLE AndroidFrontendEventStart = GAndroidInFrontendConsolePostRender ? appSeconds() : 0.0;
+#endif
 #if defined(__ANDROID__) && defined(UT99_ANDROID_SCRIPT_TIMING_TRACE)
 	const DOUBLE AndroidEventStart = appSeconds();
 #endif
@@ -4082,6 +4211,26 @@ void UObject::ProcessEvent( UFunction* Function, void* Parms, void* UnusedResult
 				Function ? Function->FunctionFlags : 0,
 				Function ? Function->ParmsSize : 0,
 				Function ? Function->PropertiesSize : 0 );
+		}
+	}
+#endif
+#if PLATFORM_ANDROID
+	if( AndroidFrontendEventStart )
+	{
+		static INT AndroidFrontendSlowEventLogs = 0;
+		const DOUBLE AndroidFrontendEventMs = (appSeconds() - AndroidFrontendEventStart) * 1000.0;
+		if( AndroidFrontendEventMs >= 25.0 && AndroidFrontendSlowEventLogs < 256 )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V348_FRONTEND_SLOW_EVENT ms=%f object=%s function=%s native=%i flags=0x%08x parms=%i props=%i count=%i"),
+				AndroidFrontendEventMs,
+				GetFullName(),
+				Function ? Function->GetFullName() : TEXT("None"),
+				Function ? Function->iNative : 0,
+				Function ? Function->FunctionFlags : 0,
+				Function ? Function->ParmsSize : 0,
+				Function ? Function->PropertiesSize : 0,
+				AndroidFrontendSlowEventLogs );
+			AndroidFrontendSlowEventLogs++;
 		}
 	}
 #endif

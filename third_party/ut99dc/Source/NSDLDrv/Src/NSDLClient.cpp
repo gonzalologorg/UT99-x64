@@ -165,6 +165,14 @@ void UNSDLClient::Tick()
 {
 	guard(UNSDLClient::Tick);
 
+#if PLATFORM_ANDROID
+	const DOUBLE AndroidClientTickStart = appSeconds();
+	DOUBLE AndroidInputMs = 0.0;
+	DOUBLE AndroidRepaintMs = 0.0;
+	INT AndroidInputCalls = 0;
+	INT AndroidRepaintCalls = 0;
+#endif
+
 	// Process input and blit any viewports that need blitting.
 	UNSDLViewport* BestViewport = NULL;
 	for( INT i=0; i<Viewports.Num(); i++ )
@@ -183,15 +191,85 @@ void UNSDLClient::Tick()
 			BestViewport = Viewport;
 		}
 		// Tick input for this viewport and see if it wants to die.
+#if PLATFORM_ANDROID
+		const DOUBLE AndroidInputStart = appSeconds();
+#endif
 		if( Viewport->TickInput() )
 		{
 			delete Viewport;
 			return;
 		}
+#if PLATFORM_ANDROID
+		AndroidInputMs += (appSeconds() - AndroidInputStart) * 1000.0;
+		AndroidInputCalls++;
+#endif
 	}
 
 	if( BestViewport )
+	{
+#if PLATFORM_ANDROID
+		const DOUBLE AndroidRepaintStart = appSeconds();
+#endif
 		BestViewport->Repaint( 1 );
+#if PLATFORM_ANDROID
+		AndroidRepaintMs += (appSeconds() - AndroidRepaintStart) * 1000.0;
+		AndroidRepaintCalls++;
+#endif
+	}
+
+#if PLATFORM_ANDROID
+	const DOUBLE AndroidTotalMs = (appSeconds() - AndroidClientTickStart) * 1000.0;
+	static DOUBLE AndroidClientWindowStart = 0.0;
+	static DOUBLE AndroidClientTotalAccumMs = 0.0;
+	static DOUBLE AndroidClientInputAccumMs = 0.0;
+	static DOUBLE AndroidClientRepaintAccumMs = 0.0;
+	static DOUBLE AndroidClientMaxMs = 0.0;
+	static INT AndroidClientFrames = 0;
+	static INT AndroidClientSlowLogs = 0;
+	if( AndroidClientWindowStart == 0.0 )
+		AndroidClientWindowStart = appSeconds();
+	AndroidClientTotalAccumMs += AndroidTotalMs;
+	AndroidClientInputAccumMs += AndroidInputMs;
+	AndroidClientRepaintAccumMs += AndroidRepaintMs;
+	AndroidClientMaxMs = Max( AndroidClientMaxMs, AndroidTotalMs );
+	AndroidClientFrames++;
+	if( AndroidTotalMs > 100.0 && AndroidClientSlowLogs < 64 )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V340_SLOW_CLIENT_TICK totalMs=%f inputMs=%f repaintMs=%f inputCalls=%i repaintCalls=%i best=%s size=%ix%i realtime=%i mouse=%i showMenu=%i count=%i"),
+			AndroidTotalMs,
+			AndroidInputMs,
+			AndroidRepaintMs,
+			AndroidInputCalls,
+			AndroidRepaintCalls,
+			BestViewport ? BestViewport->GetFullName() : TEXT("None"),
+			BestViewport ? BestViewport->SizeX : 0,
+			BestViewport ? BestViewport->SizeY : 0,
+			(BestViewport && BestViewport->IsRealtime()) ? 1 : 0,
+			BestViewport ? BestViewport->bShowWindowsMouse : 0,
+			(BestViewport && BestViewport->Actor) ? BestViewport->Actor->bShowMenu : 0,
+			AndroidClientSlowLogs );
+		AndroidClientSlowLogs++;
+	}
+	if( appSeconds() - AndroidClientWindowStart >= 1.0 )
+	{
+		debugf( NAME_Log, TEXT("UT99_ANDROID_V340_CLIENT_TICK_TIMING frames=%i seconds=%f avgTotalMs=%f maxTotalMs=%f avgInputMs=%f avgRepaintMs=%f inputCalls=%i repaintCalls=%i best=%s"),
+			AndroidClientFrames,
+			appSeconds() - AndroidClientWindowStart,
+			AndroidClientFrames ? AndroidClientTotalAccumMs / AndroidClientFrames : 0.0,
+			AndroidClientMaxMs,
+			AndroidClientFrames ? AndroidClientInputAccumMs / AndroidClientFrames : 0.0,
+			AndroidClientFrames ? AndroidClientRepaintAccumMs / AndroidClientFrames : 0.0,
+			AndroidInputCalls,
+			AndroidRepaintCalls,
+			BestViewport ? BestViewport->GetFullName() : TEXT("None") );
+		AndroidClientWindowStart = appSeconds();
+		AndroidClientTotalAccumMs = 0.0;
+		AndroidClientInputAccumMs = 0.0;
+		AndroidClientRepaintAccumMs = 0.0;
+		AndroidClientMaxMs = 0.0;
+		AndroidClientFrames = 0;
+	}
+#endif
 
 	unguard;
 }

@@ -263,6 +263,47 @@ void AActor::execGetMapName( FFrame& Stack, RESULT_DECL )
 {
 	guard(AActor::execGetMapName);
 
+#if PLATFORM_ANDROID
+	extern UBOOL GAndroidFrontendMenuRequested;
+	if( GAndroidFrontendMenuRequested )
+	{
+		*(FString*)Result = TEXT("");
+
+		// Some UT menu bytecode reaches this 32-bit native with misaligned
+		// parameter expressions on Android/arm64.  Evaluating those expressions
+		// can execute unrelated natives (for example GetAxes) as string params
+		// and corrupt FString temporaries.  Consume the parameter list and
+		// provide a conservative map result instead of letting the menu crash.
+		if( Stack.Node && Stack.Code )
+		{
+			BYTE* ScriptStart = &Stack.Node->Script(0);
+			BYTE* ScriptEnd = ScriptStart + Stack.Node->Script.Num();
+			INT Scanned = 0;
+			while( Stack.Code < ScriptEnd && *Stack.Code != EX_EndFunctionParms && Scanned < 512 )
+			{
+				Stack.Code++;
+				Scanned++;
+			}
+			if( Stack.Code < ScriptEnd && *Stack.Code == EX_EndFunctionParms )
+				Stack.Code++;
+
+			static INT AndroidGetMapNameSkipLogs = 0;
+			if( AndroidGetMapNameSkipLogs < 64 )
+			{
+				debugf( NAME_Warning, TEXT("UT99_ANDROID_V346_FRONTEND_GETMAPNAME_SAFE object=%s node=%s scanned=%i code=%i count=%i"),
+					Stack.Object ? Stack.Object->GetFullName() : TEXT("None"),
+					Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
+					Scanned,
+					Stack.Code ? (INT)(Stack.Code - ScriptStart) : -1,
+					AndroidGetMapNameSkipLogs );
+			}
+			AndroidGetMapNameSkipLogs++;
+		}
+
+		return;
+	}
+#endif
+
 	P_GET_STR(Prefix);
 	P_GET_STR(MapName);
 	P_GET_INT(Dir);

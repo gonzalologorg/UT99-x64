@@ -18,6 +18,7 @@
 #define UT99_ANDROID_SHOW_FPS_COUNTER 0
 #endif
 UBOOL GAndroidFrontendMenuRequested = 0;
+INT GAndroidInFrontendConsolePostRender = 0;
 INT GAndroidInterpPositionScriptOffset = INDEX_NONE;
 INT GAndroidInterpRateScriptOffset = INDEX_NONE;
 INT GAndroidInterpGameSpeedScriptOffset = INDEX_NONE;
@@ -2522,6 +2523,8 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 	DOUBLE AndroidPostMs = 0.0;
 	DOUBLE AndroidActorPostMs = 0.0;
 	DOUBLE AndroidConsolePostMs = 0.0;
+	DOUBLE AndroidConsoleNativePostMs = 0.0;
+	DOUBLE AndroidConsoleEventPostMs = 0.0;
 	DOUBLE AndroidAudioPostMs = 0.0;
 	DOUBLE AndroidFinishMs = 0.0;
 	DOUBLE AndroidRenderPreMs = 0.0;
@@ -2831,6 +2834,21 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 		AndroidPreMs += AndroidRenderPreMs + AndroidConsolePreMs;
 #endif
 		UBOOL bConsoleDrawWorld = !Viewport->Console || Viewport->Console->GetDrawWorld();
+#if PLATFORM_ANDROID
+		if( GAndroidFrontendMenuRequested )
+		{
+			static INT AndroidFrontendDrawWorldSkipLogs = 0;
+			if( bConsoleDrawWorld && (AndroidFrontendDrawWorldSkipLogs < 16 || (AndroidFrontendDrawWorldSkipLogs % 240) == 0) )
+			{
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V343_SKIP_FRONTEND_DRAWWORLD actor=%s level=%s count=%i"),
+					Viewport->Actor ? Viewport->Actor->GetFullName() : TEXT("None"),
+					(Viewport->Actor && Viewport->Actor->GetLevel() && Viewport->Actor->GetLevel()->GetOuter()) ? Viewport->Actor->GetLevel()->GetOuter()->GetName() : TEXT("None"),
+					AndroidFrontendDrawWorldSkipLogs );
+			}
+			AndroidFrontendDrawWorldSkipLogs++;
+			bConsoleDrawWorld = 0;
+		}
+#endif
 #if PLATFORM_ANDROID && UT99_ANDROID_FRAME_TRACE
 		if( AndroidDrawGateTraceCount < 80 || (AndroidDrawGateTraceCount % 120) == 0 )
 		{
@@ -2918,6 +2936,9 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 		}
 		if( !AndroidSkipNullHudPostRender )
 #endif
+#if PLATFORM_ANDROID
+		if( !GAndroidFrontendMenuRequested )
+#endif
 			Viewport->Actor->eventPostRender( Viewport->Canvas );
 		AndroidActorPostMs = (appSeconds() - AndroidPhaseStart) * 1000.0;
 		UBOOL AndroidSkipLogoConsolePostRender = 0;
@@ -2971,8 +2992,20 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 				}
 			}
 #endif
+			DOUBLE AndroidConsoleNativeStart = appSeconds();
 			Viewport->Console->PostRender( Frame );
+			AndroidConsoleNativePostMs = (appSeconds() - AndroidConsoleNativeStart) * 1000.0;
+			DOUBLE AndroidConsoleEventStart = appSeconds();
+#if defined(__ANDROID__)
+			if( GAndroidFrontendMenuRequested )
+				GAndroidInFrontendConsolePostRender++;
+#endif
 			Viewport->Console->eventPostRender( Viewport->Canvas );
+#if defined(__ANDROID__)
+			if( GAndroidFrontendMenuRequested && GAndroidInFrontendConsolePostRender > 0 )
+				GAndroidInFrontendConsolePostRender--;
+#endif
+			AndroidConsoleEventPostMs = (appSeconds() - AndroidConsoleEventStart) * 1000.0;
 #if defined(__ANDROID__)
 			if( GAndroidFrontendMenuRequested )
 			{
@@ -2985,6 +3018,24 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 			}
 #endif
 			AndroidConsolePostMs = (appSeconds() - AndroidPhaseStart) * 1000.0;
+#if defined(__ANDROID__)
+			if( GAndroidFrontendMenuRequested && AndroidConsolePostMs > 100.0 )
+			{
+				static INT AndroidSlowConsolePostLogs = 0;
+				if( AndroidSlowConsolePostLogs < 64 )
+				{
+					debugf( NAME_Log, TEXT("UT99_ANDROID_V345_SLOW_CONSOLE_POST totalMs=%f nativePostMs=%f eventPostMs=%f console=%s state=%s actor=%s count=%i"),
+						AndroidConsolePostMs,
+						AndroidConsoleNativePostMs,
+						AndroidConsoleEventPostMs,
+						Viewport->Console ? Viewport->Console->GetFullName() : TEXT("None"),
+						(Viewport->Console && Viewport->Console->GetStateFrame() && Viewport->Console->GetStateFrame()->StateNode) ? Viewport->Console->GetStateFrame()->StateNode->GetName() : TEXT("None"),
+						Viewport->Actor ? Viewport->Actor->GetFullName() : TEXT("None"),
+						AndroidSlowConsolePostLogs );
+				}
+				AndroidSlowConsolePostLogs++;
+			}
+#endif
 		}
 		if( Audio )
 		{
@@ -3055,6 +3106,34 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 		const DOUBLE AndroidWorldMs = (AndroidAfterWorld - AndroidWorldStart) * 1000.0;
 		const DOUBLE AndroidUnlockMs = (AndroidAfterUnlock - AndroidUnlockStart) * 1000.0;
 		const DOUBLE AndroidTotalMs = (AndroidDrawEnd - AndroidDrawStart) * 1000.0;
+		static INT AndroidSlowDrawLogs = 0;
+		if( AndroidTotalMs > 100.0 && AndroidSlowDrawLogs < 64 )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V343_SLOW_DRAW totalMs=%f lockMs=%f audioMs=%f preMs=%f renderPreMs=%f consolePreMs=%f canvasUpdateMs=%f actorPreMs=%f worldMs=%f postMs=%f actorPostMs=%f consolePostMs=%f consoleNativeMs=%f consoleEventMs=%f audioPostMs=%f unlockMs=%f finishMs=%f frontend=%i drawWorld=%i size=%ix%i count=%i"),
+				AndroidTotalMs,
+				AndroidLockMs,
+				AndroidAudioMs,
+				AndroidPreMs,
+				AndroidRenderPreMs,
+				AndroidConsolePreMs,
+				AndroidCanvasUpdateMs,
+				AndroidActorPreMs,
+				AndroidWorldMs,
+				AndroidPostMs,
+				AndroidActorPostMs,
+				AndroidConsolePostMs,
+				AndroidConsoleNativePostMs,
+				AndroidConsoleEventPostMs,
+				AndroidAudioPostMs,
+				AndroidUnlockMs,
+				AndroidFinishMs,
+				GAndroidFrontendMenuRequested ? 1 : 0,
+				bConsoleDrawWorld ? 1 : 0,
+				Viewport->SizeX,
+				Viewport->SizeY,
+				AndroidSlowDrawLogs );
+			AndroidSlowDrawLogs++;
+		}
 		AndroidAccumLock += AndroidLockMs;
 		AndroidAccumWorld += AndroidWorldMs;
 		AndroidAccumUnlock += AndroidUnlockMs;
@@ -3350,7 +3429,7 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 				for( INT i=0; i<GLevel->Actors.Num(); i++ )
 				{
 					APlayerPawn* P = Cast<APlayerPawn>( GLevel->Actors(i) );
-					if( P && P->Player )
+					if( P && P->Player && P->PlayerReplicationInfo )
 					{
 						// Export items and self.
 						FStringOutputDevice PlayerTravelInfo;
@@ -3363,6 +3442,21 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 						if( Cast<UViewport>( P->Player ) )
 							Cast<UViewport>( P->Player )->TravelURL = TEXT("");
 					}
+#if PLATFORM_ANDROID
+					else if( P && P->Player )
+					{
+						static INT AndroidSkipBadServerTravelLogs = 0;
+						if( AndroidSkipBadServerTravelLogs < 16 )
+						{
+							debugf( NAME_Warning, TEXT("UT99_ANDROID_V341_SKIP_BAD_SERVER_TRAVEL_ITEMS player=%s pri=%p level=%s count=%i"),
+								P->GetFullName(),
+								P->PlayerReplicationInfo,
+								GLevel && GLevel->GetOuter() ? GLevel->GetOuter()->GetName() : TEXT("None"),
+								AndroidSkipBadServerTravelLogs );
+						}
+						AndroidSkipBadServerTravelLogs++;
+					}
+#endif
 				}
 			}
 			debugf( TEXT("Server switch level: %s"), *GLevel->GetLevelInfo()->NextURL );

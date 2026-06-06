@@ -1435,6 +1435,27 @@ UBOOL UNSDLViewport::TickInput()
 					Client->Engine->MousePosition( this, 0, MouseX, MouseY );
 					const DWORD ClickFlags = (Ev.button.button == SDL_BUTTON_LEFT ? MOUSE_Left : 0)
 						| (Ev.type == SDL_MOUSEBUTTONDOWN ? MOUSE_FirstHit : MOUSE_LastRelease);
+					static INT AndroidMenuMouseCoordLogs = 0;
+					if( AndroidMenuMouseCoordLogs < 48 || (AndroidMenuMouseCoordLogs % 120) == 0 )
+					{
+						debugf( NAME_Log, TEXT("UT99_ANDROID_V342_MENU_MOUSE_COORD type=%i button=%i internal=%f,%f stored=%f,%f viewport=%ix%i drawable=%ix%i output=%ix%i mouse=%i showMenu=%i count=%i"),
+							Ev.type,
+							Ev.button.button,
+							MouseX,
+							MouseY,
+							WindowsMouseX,
+							WindowsMouseY,
+							SizeX,
+							SizeY,
+							GAndroidSDLDrawableX,
+							GAndroidSDLDrawableY,
+							GAndroidSDLDrawableX,
+							GAndroidSDLDrawableY,
+							bShowWindowsMouse,
+							Actor ? Actor->bShowMenu : 0,
+							AndroidMenuMouseCoordLogs );
+					}
+					AndroidMenuMouseCoordLogs++;
 					Client->Engine->MouseDelta( this, ClickFlags, 0.0f, 0.0f );
 					Client->Engine->Click( this, ClickFlags, MouseX, MouseY );
 					static INT AndroidMouseButtonLogs = 0;
