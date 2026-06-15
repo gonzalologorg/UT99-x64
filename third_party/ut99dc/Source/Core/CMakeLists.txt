@@ -36,7 +36,11 @@ endif()
 if(NOT MSVC AND NOT (CMAKE_BUILD_TYPE STREQUAL "Debug"))
   # FIXME: the very funny reference juggling UE does with FFrame::Step() confuses gcc,
   # so we'll lower optimization level for the core UnrealScript interpreter for now
-  set_source_files_properties("Src/UnCorSc.cpp" PROPERTIES COMPILE_FLAGS -Og)
+  if(ANDROID)
+    set_source_files_properties("Src/UnCorSc.cpp" PROPERTIES COMPILE_FLAGS -O2)
+  else()
+    set_source_files_properties("Src/UnCorSc.cpp" PROPERTIES COMPILE_FLAGS -Og)
+  endif()
   set_source_files_properties("Src/UnProp.cpp" PROPERTIES COMPILE_FLAGS -Og)
 endif()
 

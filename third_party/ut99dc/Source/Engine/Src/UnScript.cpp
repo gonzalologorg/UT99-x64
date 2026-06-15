@@ -471,11 +471,41 @@ void AActor::physPathing( FLOAT DeltaTime )
 			{
 				static INT AndroidFastPathMoveLogs = 0;
 				const FVector AndroidOldLocation = Location;
+				if( bCollideActors && GetLevel() && GetLevel()->Hash )
+				{
+					if( Location != ColLocation )
+					{
+						const FVector AndroidActualLocation = Location;
+						Location = ColLocation;
+						GetLevel()->Hash->RemoveActor( this );
+						Location = AndroidActualLocation;
+						static INT AndroidStaleCameraHashRecoveries = 0;
+						if( AndroidStaleCameraHashRecoveries < 16 )
+						{
+							debugf( NAME_Warning, TEXT("UT99_ANDROID_V373_RECOVER_STALE_CAMERA_HASH actor=%s location=%f,%f,%f col=%f,%f,%f count=%i"),
+								GetFullName(),
+								AndroidActualLocation.X,
+								AndroidActualLocation.Y,
+								AndroidActualLocation.Z,
+								ColLocation.X,
+								ColLocation.Y,
+								ColLocation.Z,
+								AndroidStaleCameraHashRecoveries );
+						}
+						AndroidStaleCameraHashRecoveries++;
+					}
+					else
+					{
+						GetLevel()->Hash->RemoveActor( this );
+					}
+				}
 				Location = NewLocation;
 				OldLocation = NewLocation;
 				Rotation = NewRotation;
 				if( GetLevel() && GetLevel()->Model )
 					Region = GetLevel()->Model->PointRegion( GetLevel()->GetLevelInfo(), Location );
+				if( bCollideActors && GetLevel() && GetLevel()->Hash )
+					GetLevel()->Hash->AddActor( this );
 				AndroidCityIntroTouchPathTriggers( this, AndroidOldLocation, NewLocation );
 				if( AndroidFastPathMoveLogs < 8 )
 				{

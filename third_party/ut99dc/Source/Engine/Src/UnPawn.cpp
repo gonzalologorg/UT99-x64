@@ -268,12 +268,15 @@ void AActor::execGetMapName( FFrame& Stack, RESULT_DECL )
 	if( GAndroidFrontendMenuRequested )
 	{
 		*(FString*)Result = TEXT("");
+		const INT InvocationOffset =
+			Stack.Node && Stack.Code && Stack.Node->Script.Num()
+			? (INT)(Stack.Code - &Stack.Node->Script(0))
+			: -1;
 
 		// Some UT menu bytecode reaches this 32-bit native with misaligned
 		// parameter expressions on Android/arm64.  Evaluating those expressions
-		// can execute unrelated natives (for example GetAxes) as string params
-		// and corrupt FString temporaries.  Consume the parameter list and
-		// provide a conservative map result instead of letting the menu crash.
+		// can corrupt FString temporaries. Consume the expressions, then perform
+		// the small stateful map iteration expected by UMenu natively.
 		if( Stack.Node && Stack.Code )
 		{
 			BYTE* ScriptStart = &Stack.Node->Script(0);
@@ -287,17 +290,94 @@ void AActor::execGetMapName( FFrame& Stack, RESULT_DECL )
 			if( Stack.Code < ScriptEnd && *Stack.Code == EX_EndFunctionParms )
 				Stack.Code++;
 
-			static INT AndroidGetMapNameSkipLogs = 0;
-			if( AndroidGetMapNameSkipLogs < 64 )
+			FString GameType(TEXT("BotPack.DeathMatchPlus"));
+			UObjectProperty* BotmatchParentProperty = Cast<UObjectProperty>(
+				FindField<UProperty>( Stack.Object->GetClass(), TEXT("BotmatchParent") ) );
+			UObject* BotmatchParent = BotmatchParentProperty
+				? *(UObject**)((BYTE*)Stack.Object + BotmatchParentProperty->Offset)
+				: NULL;
+			if( BotmatchParent )
 			{
-				debugf( NAME_Warning, TEXT("UT99_ANDROID_V346_FRONTEND_GETMAPNAME_SAFE object=%s node=%s scanned=%i code=%i count=%i"),
+				UStrProperty* GameTypeProperty = Cast<UStrProperty>(
+					FindField<UProperty>( BotmatchParent->GetClass(), TEXT("GameType") ) );
+				if( GameTypeProperty )
+					GameType = *(FString*)((BYTE*)BotmatchParent + GameTypeProperty->Offset);
+			}
+
+			const TCHAR* Prefix = TEXT("DM");
+			if( appStrstr(*GameType, TEXT("CTF")) || appStrstr(*GameType, TEXT("CaptureTheFlag")) )
+				Prefix = TEXT("CTF");
+			else if( appStrstr(*GameType, TEXT("DOM")) || appStrstr(*GameType, TEXT("Domination")) )
+				Prefix = TEXT("DOM");
+			else if( appStrstr(*GameType, TEXT("ASGame")) || appStrstr(*GameType, TEXT("Assault")) )
+				Prefix = TEXT("AS");
+
+			TArray<FString> MapNames;
+			TCHAR Wildcard[256];
+			appSprintf( Wildcard, TEXT("*.%s"), *FURL::DefaultMapExt );
+			for( INT PathIndex=0; PathIndex<GSys->Paths.Num(); PathIndex++ )
+			{
+				if( !appStrstr(*GSys->Paths(PathIndex), Wildcard) )
+					continue;
+				TCHAR SearchPath[256]=TEXT("");
+				appStrcat( SearchPath, *GSys->Paths(PathIndex) );
+				TCHAR* WildcardPosition = appStrstr(SearchPath, Wildcard);
+				if( !WildcardPosition )
+					continue;
+				*WildcardPosition = 0;
+				appStrcat( SearchPath, Prefix );
+				appStrcat( SearchPath, TEXT("-") );
+				appStrcat( SearchPath, Wildcard );
+				TArray<FString> FoundNames = GFileManager->FindFiles(SearchPath,1,0);
+				for( INT FoundIndex=0; FoundIndex<FoundNames.Num(); FoundIndex++ )
+				{
+					if( appStrstr(*FoundNames(FoundIndex), TEXT("-tutorial")) )
+						continue;
+					INT ExistingIndex;
+					for( ExistingIndex=0; ExistingIndex<MapNames.Num(); ExistingIndex++ )
+						if( appStricmp(*MapNames(ExistingIndex), *FoundNames(FoundIndex)) == 0 )
+							break;
+					if( ExistingIndex == MapNames.Num() )
+						new(MapNames) FString(FoundNames(FoundIndex));
+				}
+			}
+
+			static UFunction* AndroidMapIteratorNode = NULL;
+			static INT AndroidMapFirstCallOffset = -1;
+			static INT AndroidMapIteratorIndex = 0;
+			static FString AndroidMapIteratorPrefix;
+			if( AndroidMapIteratorNode != Stack.Node )
+			{
+				AndroidMapIteratorNode = Cast<UFunction>(Stack.Node);
+				AndroidMapFirstCallOffset = InvocationOffset;
+				AndroidMapIteratorIndex = 0;
+			}
+			if
+			(	InvocationOffset == AndroidMapFirstCallOffset
+			||	appStricmp(*AndroidMapIteratorPrefix, Prefix) != 0 )
+				AndroidMapIteratorIndex = 0;
+			else if( MapNames.Num() > 0 )
+				AndroidMapIteratorIndex = (AndroidMapIteratorIndex + 1) % MapNames.Num();
+			AndroidMapIteratorPrefix = Prefix;
+			if( MapNames.Num() > 0 )
+				*(FString*)Result = MapNames(AndroidMapIteratorIndex);
+
+			static INT AndroidGetMapNameLogs = 0;
+			if( AndroidGetMapNameLogs < 96 )
+			{
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V377_FRONTEND_MAP_ITER object=%s node=%s game=%s prefix=%s maps=%i index=%i result=%s invokeCode=%i scanned=%i count=%i"),
 					Stack.Object ? Stack.Object->GetFullName() : TEXT("None"),
 					Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
+					*GameType,
+					Prefix,
+					MapNames.Num(),
+					AndroidMapIteratorIndex,
+					**(FString*)Result,
+					InvocationOffset,
 					Scanned,
-					Stack.Code ? (INT)(Stack.Code - ScriptStart) : -1,
-					AndroidGetMapNameSkipLogs );
+					AndroidGetMapNameLogs );
 			}
-			AndroidGetMapNameSkipLogs++;
+			AndroidGetMapNameLogs++;
 		}
 
 		return;

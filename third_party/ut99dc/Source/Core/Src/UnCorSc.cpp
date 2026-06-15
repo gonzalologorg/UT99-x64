@@ -69,9 +69,40 @@ static UBOOL IsKnownScriptPropertyPointer( UProperty* Property )
 	guardSlow(IsKnownScriptPropertyPointer);
 	if( !Property )
 		return 0;
+	enum { SCRIPT_PROPERTY_CACHE_SIZE = 65536 };
+	static UProperty* ValidPropertyCache[SCRIPT_PROPERTY_CACHE_SIZE] = {0};
+	const INT CacheIndex = (INT)(((SIZE_T)Property >> 4) & (SCRIPT_PROPERTY_CACHE_SIZE-1));
+	if( ValidPropertyCache[CacheIndex] == Property )
+	{
+#if PLATFORM_ANDROID
+		static INT AndroidPropertyCacheHits = 0;
+		AndroidPropertyCacheHits++;
+		if( AndroidPropertyCacheHits == 100000 )
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V357_SCRIPT_POINTER_CACHE type=property hits=%i"), AndroidPropertyCacheHits );
+#endif
+		return 1;
+	}
+	INT Scanned = 0;
 	for( TObjectIterator<UProperty> It; It; ++It )
+	{
+		Scanned++;
 		if( *It==Property )
+		{
+			ValidPropertyCache[CacheIndex] = Property;
+#if PLATFORM_ANDROID
+			static INT AndroidPropertyCacheMisses = 0;
+			static QWORD AndroidPropertyCacheScanned = 0;
+			AndroidPropertyCacheMisses++;
+			AndroidPropertyCacheScanned += Scanned;
+			if( (AndroidPropertyCacheMisses & 1023) == 0 )
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V360_SCRIPT_POINTER_MISS type=property misses=%i avgScanned=%f lastScanned=%i"),
+					AndroidPropertyCacheMisses,
+					(FLOAT)AndroidPropertyCacheScanned / AndroidPropertyCacheMisses,
+					Scanned );
+#endif
 			return 1;
+		}
+	}
 	return 0;
 	unguardSlow;
 }
@@ -81,9 +112,40 @@ static UBOOL IsKnownScriptObjectPointer( UObject* Object )
 	guardSlow(IsKnownScriptObjectPointer);
 	if( !Object )
 		return 1;
+	enum { SCRIPT_OBJECT_CACHE_SIZE = 65536 };
+	static UObject* ValidObjectCache[SCRIPT_OBJECT_CACHE_SIZE] = {0};
+	const INT CacheIndex = (INT)(((SIZE_T)Object >> 4) & (SCRIPT_OBJECT_CACHE_SIZE-1));
+	if( ValidObjectCache[CacheIndex] == Object )
+	{
+#if PLATFORM_ANDROID
+		static INT AndroidObjectCacheHits = 0;
+		AndroidObjectCacheHits++;
+		if( AndroidObjectCacheHits == 100000 )
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V357_SCRIPT_POINTER_CACHE type=object hits=%i"), AndroidObjectCacheHits );
+#endif
+		return 1;
+	}
+	INT Scanned = 0;
 	for( FObjectIterator It; It; ++It )
+	{
+		Scanned++;
 		if( *It==Object )
+		{
+			ValidObjectCache[CacheIndex] = Object;
+#if PLATFORM_ANDROID
+			static INT AndroidObjectCacheMisses = 0;
+			static QWORD AndroidObjectCacheScanned = 0;
+			AndroidObjectCacheMisses++;
+			AndroidObjectCacheScanned += Scanned;
+			if( (AndroidObjectCacheMisses & 1023) == 0 )
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V360_SCRIPT_POINTER_MISS type=object misses=%i avgScanned=%f lastScanned=%i"),
+					AndroidObjectCacheMisses,
+					(FLOAT)AndroidObjectCacheScanned / AndroidObjectCacheMisses,
+					Scanned );
+#endif
 			return 1;
+		}
+	}
 	return 0;
 	unguardSlow;
 }
@@ -324,7 +386,47 @@ void UObject::execLocalVariable( FFrame& Stack, RESULT_DECL )
 
 	checkSlow(Stack.Object==this);
 	checkSlow(Stack.Locals!=NULL);
-	GProperty = (UProperty*)Stack.ReadObject();
+	UProperty* SerializedProperty = (UProperty*)Stack.ReadObject();
+	GProperty = SerializedProperty;
+#if PLATFORM_ANDROID
+	if( !IsKnownScriptPropertyPointer(GProperty) && Stack.Node )
+	{
+		UProperty* OnlyLocal = NULL;
+		INT LocalCount = 0;
+		for( UField* Field=Stack.Node->Children; Field; Field=Field->Next )
+		{
+			UProperty* Candidate = Cast<UProperty>(Field);
+			if( !Candidate || (Candidate->PropertyFlags & CPF_Parm) )
+				continue;
+			OnlyLocal = Candidate;
+			LocalCount++;
+			if( LocalCount > 1 )
+				break;
+		}
+		if
+		(	LocalCount == 1
+		&&	IsKnownScriptPropertyPointer(OnlyLocal)
+		&&	OnlyLocal->Offset >= 0
+		&&	OnlyLocal->Offset + OnlyLocal->GetSize() <= Stack.Node->GetPropertiesSize() )
+		{
+			GProperty = OnlyLocal;
+			static INT AndroidLocalPropertyRecoveries = 0;
+			if( AndroidLocalPropertyRecoveries < 64 )
+			{
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V365_RECOVER_SINGLE_LOCAL object=%s node=%s code=%i raw=%p property=%s offset=%i size=%i count=%i"),
+					Stack.Object ? Stack.Object->GetFullName() : TEXT("None"),
+					Stack.Node->GetFullName(),
+					Stack.Node->Script.Num() ? (INT)(Stack.Code - &Stack.Node->Script(0)) : -1,
+					SerializedProperty,
+					GProperty->GetFullName(),
+					GProperty->Offset,
+					GProperty->GetSize(),
+					AndroidLocalPropertyRecoveries );
+			}
+			AndroidLocalPropertyRecoveries++;
+		}
+	}
+#endif
 	if( !ValidateScriptProperty( Stack, GProperty, TEXT("LocalVariable") ) )
 	{
 		GProperty = NULL;
@@ -3817,6 +3919,62 @@ void UObject::execDynamicLoadObject( FFrame& Stack, RESULT_DECL )
 	P_GET_UBOOL_OPTX(bMayFail,0);
 	P_FINISH;
 
+	if( Name.Len()==0 || !Class || !IsKnownScriptObjectPointer(Class) )
+	{
+		*(UObject**)Result = NULL;
+#if PLATFORM_ANDROID
+		if
+		(	Stack.Node
+		&&	(	appStricmp( Stack.Node->GetFullName(), TEXT("Function UTMenu.UTMenuBotmatchCW.CreatePages") ) == 0
+			||	appStricmp( Stack.Node->GetFullName(), TEXT("Function UTMenu.UTMenuStartMatchCW.Created") ) == 0 ) )
+		{
+			BYTE* ScriptStart = Stack.Node->Script.Num() ? &Stack.Node->Script(0) : NULL;
+			BYTE* TerminalReturn = NULL;
+			if( ScriptStart )
+			{
+				for( INT i=Stack.Node->Script.Num()-2; i>=0; i-- )
+				{
+					if( ScriptStart[i] == EX_Return && ScriptStart[i+1] == EX_Nothing )
+					{
+						TerminalReturn = ScriptStart + i;
+						break;
+					}
+				}
+			}
+			if( TerminalReturn )
+			{
+				const INT OldCode = (INT)(Stack.Code - ScriptStart);
+				Stack.Code = TerminalReturn;
+				static INT AndroidFrontendInvalidLoadAborts = 0;
+				if( AndroidFrontendInvalidLoadAborts < 32 )
+				{
+					debugf( NAME_Warning, TEXT("UT99_ANDROID_V368_ABORT_INVALID_FRONTEND_LOAD object=%s node=%s oldCode=%i returnCode=%i name=%s class=%p count=%i"),
+						Stack.Object ? Stack.Object->GetFullName() : TEXT("None"),
+						Stack.Node->GetFullName(),
+						OldCode,
+						(INT)(TerminalReturn - ScriptStart),
+						*Name,
+						Class,
+						AndroidFrontendInvalidLoadAborts );
+				}
+				AndroidFrontendInvalidLoadAborts++;
+			}
+		}
+		static INT AndroidInvalidDynamicLoads = 0;
+		if( AndroidInvalidDynamicLoads < 64 )
+		{
+			debugf( NAME_Warning, TEXT("UT99_ANDROID_V365_SKIP_INVALID_DYNAMIC_LOAD object=%s node=%s name=%s class=%p known=%i count=%i"),
+				Stack.Object ? Stack.Object->GetFullName() : TEXT("None"),
+				Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
+				*Name,
+				Class,
+				Class ? IsKnownScriptObjectPointer(Class) : 1,
+				AndroidInvalidDynamicLoads );
+		}
+		AndroidInvalidDynamicLoads++;
+#endif
+		return;
+	}
 	*(UObject**)Result = StaticLoadObject( Class, NULL, *Name, NULL, LOAD_NoWarn | (bMayFail?LOAD_Quiet:0), NULL );
 
 	unguardexecSlow;
@@ -3913,6 +4071,11 @@ struct FOutParmRec
 	BYTE*      PropAddr;
 };
 
+#if PLATFORM_ANDROID
+static UObject* GAndroidLastFrontendMenuBarItem = NULL;
+static UObject* GAndroidLastFrontendPulldownItem = NULL;
+#endif
+
 //
 // Call a function.
 //
@@ -3922,47 +4085,216 @@ void UObject::CallFunction( FFrame& Stack, RESULT_DECL, UFunction* Function )
 #if DO_GUARD_SLOW
 	DWORD Cycles=0; clock(Cycles);
 #endif
-#if PLATFORM_ANDROID
-	extern INT GAndroidInFrontendConsolePostRender;
-	const DOUBLE AndroidFrontendCallStart = GAndroidInFrontendConsolePostRender ? appSeconds() : 0.0;
-#endif
 #if defined(__ANDROID__) && defined(UT99_ANDROID_SCRIPT_TIMING_TRACE)
 	const DOUBLE AndroidCallStart = appSeconds();
 #endif
 #if PLATFORM_ANDROID
+	UObject* AndroidRecoveredMenuBarSelectItem = NULL;
+	UObject* AndroidRecoveredBotmatchStartTarget = NULL;
 	extern UBOOL GAndroidFrontendMenuRequested;
 	if
 	(	GAndroidFrontendMenuRequested
 	&&	Function
-	&&	Function->GetFName() == FName(TEXT("IterateMaps"), FNAME_Find)
-	&&	Function->GetOuter()
-	&&	appStrstr( Function->GetOuter()->GetName(), TEXT("StartMatch") ) )
+	&&	appStricmp( Function->GetName(), TEXT("LMouseUp") ) == 0
+	&&	appStrstr( GetClass()->GetName(), TEXT("Button") ) )
 	{
-		if( Stack.Node && Stack.Code )
+		for( FObjectIterator It; It; ++It )
 		{
-			BYTE* ScriptStart = &Stack.Node->Script(0);
-			BYTE* ScriptEnd = ScriptStart + Stack.Node->Script.Num();
-			INT Scanned = 0;
-			while( Stack.Code < ScriptEnd && *Stack.Code != EX_EndFunctionParms && Scanned < 512 )
+			UObject* Candidate = *It;
+			if
+			(	!Candidate
+			||	appStricmp( Candidate->GetClass()->GetName(), TEXT("UTMenuBotmatchCW") ) != 0 )
+				continue;
+			UObjectProperty* StartButtonProperty = Cast<UObjectProperty>(
+				FindField<UProperty>( Candidate->GetClass(), TEXT("StartButton") ) );
+			UObject* StartButton = StartButtonProperty
+				? *(UObject**)((BYTE*)Candidate + StartButtonProperty->Offset)
+				: NULL;
+			if( StartButton == this )
 			{
-				Stack.Code++;
-				Scanned++;
+				AndroidRecoveredBotmatchStartTarget = Candidate;
+				break;
 			}
-			if( Stack.Code < ScriptEnd && *Stack.Code == EX_EndFunctionParms )
-				Stack.Code++;
-			static INT AndroidSkipIterateMapsLogs = 0;
-			if( AndroidSkipIterateMapsLogs < 64 )
+		}
+		if( AndroidRecoveredBotmatchStartTarget )
+		{
+			static INT AndroidBotmatchStartClickLogs = 0;
+			if( AndroidBotmatchStartClickLogs < 32 )
 			{
-				debugf( NAME_Warning, TEXT("UT99_ANDROID_V347_SKIP_FRONTEND_ITERATEMAPS object=%s function=%s caller=%s scanned=%i count=%i"),
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V376_BOTMATCH_START_CLICK button=%s target=%s function=%s count=%i"),
 					GetFullName(),
+					AndroidRecoveredBotmatchStartTarget->GetFullName(),
+					Function->GetFullName(),
+					AndroidBotmatchStartClickLogs );
+			}
+			AndroidBotmatchStartClickLogs++;
+		}
+	}
+	if
+	(	Function
+	&&	appStricmp( Function->GetName(), TEXT("Created") ) == 0
+	&&	(	appStricmp( GetClass()->GetName(), TEXT("UTMenuStartMatchCW") ) == 0
+		||	appStricmp( GetClass()->GetName(), TEXT("UTRulesCWindow") ) == 0 ) )
+	{
+		UObject* ParentChain[4] = { NULL, NULL, NULL, NULL };
+		UObject* ChainObject = this;
+		for( INT ChainIndex=0; ChainIndex<ARRAY_COUNT(ParentChain); ChainIndex++ )
+		{
+			UObjectProperty* ParentProperty = Cast<UObjectProperty>(
+				FindField<UProperty>( ChainObject->GetClass(), TEXT("ParentWindow") ) );
+			if( !ParentProperty )
+				break;
+			UObject* ParentValue = *(UObject**)((BYTE*)ChainObject + ParentProperty->Offset);
+			if( !ParentValue || !IsKnownScriptObjectPointer(ParentValue) )
+				break;
+			ParentChain[ChainIndex] = ParentValue;
+			ChainObject = ParentValue;
+		}
+		UObjectProperty* OwnerProperty = Cast<UObjectProperty>(
+			FindField<UProperty>( GetClass(), TEXT("OwnerWindow") ) );
+		UObject* OwnerWindow = OwnerProperty
+			? *(UObject**)((BYTE*)this + OwnerProperty->Offset)
+			: NULL;
+		if( OwnerWindow && !IsKnownScriptObjectPointer(OwnerWindow) )
+			OwnerWindow = NULL;
+		static INT AndroidFrontendParentChainTraces = 0;
+		if( AndroidFrontendParentChainTraces < 64 )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V371_WINDOW_PARENT_CHAIN object=%s function=%s owner=%s p0=%s p1=%s p2=%s p3=%s count=%i"),
+				GetFullName(),
+				Function->GetFullName(),
+				OwnerWindow ? OwnerWindow->GetFullName() : TEXT("None"),
+				ParentChain[0] ? ParentChain[0]->GetFullName() : TEXT("None"),
+				ParentChain[1] ? ParentChain[1]->GetFullName() : TEXT("None"),
+				ParentChain[2] ? ParentChain[2]->GetFullName() : TEXT("None"),
+				ParentChain[3] ? ParentChain[3]->GetFullName() : TEXT("None"),
+				AndroidFrontendParentChainTraces );
+		}
+		AndroidFrontendParentChainTraces++;
+	}
+	if
+	(	Function
+	&&	(	appStricmp( GetClass()->GetName(), TEXT("UTMenuStartMatchCW") ) == 0
+		||	appStricmp( GetClass()->GetName(), TEXT("UTMenuBotmatchCW") ) == 0 )
+	&&	(	appStricmp( Function->GetName(), TEXT("Created") ) == 0
+		||	appStricmp( Function->GetName(), TEXT("CreatePages") ) == 0
+		||	appStricmp( Function->GetName(), TEXT("StartPressed") ) == 0 ) )
+	{
+		UObjectProperty* GameClassProperty = Cast<UObjectProperty>(
+			FindField<UProperty>( GetClass(), TEXT("GameClass") ) );
+		UObject* CurrentGameClass = GameClassProperty
+			? *(UObject**)((BYTE*)this + GameClassProperty->Offset)
+			: NULL;
+		if
+		(	GameClassProperty
+		&&	(!CurrentGameClass || !IsKnownScriptObjectPointer(CurrentGameClass)) )
+		{
+			UClass* DefaultGameClass = StaticLoadClass(
+				UObject::StaticClass(),
+				NULL,
+				TEXT("Botpack.DeathMatchPlus"),
+				NULL,
+				LOAD_NoWarn,
+				NULL );
+			if( DefaultGameClass )
+			{
+				*(UObject**)((BYTE*)this + GameClassProperty->Offset) = DefaultGameClass;
+				static INT AndroidBotmatchGameClassFixes = 0;
+				if( AndroidBotmatchGameClassFixes < 32 )
+				{
+					debugf( NAME_Log, TEXT("UT99_ANDROID_V369_BOTMATCH_GAMECLASS_FIX object=%s function=%s propertyOffset=%i old=%p new=%s count=%i"),
+						GetFullName(),
+						Function->GetFullName(),
+						GameClassProperty->Offset,
+						CurrentGameClass,
+						DefaultGameClass->GetFullName(),
+						AndroidBotmatchGameClassFixes );
+				}
+				AndroidBotmatchGameClassFixes++;
+			}
+		}
+	}
+	if( GAndroidFrontendMenuRequested && Function )
+	{
+		const TCHAR* FunctionName = Function->GetName();
+		if
+		(	appStricmp( FunctionName, TEXT("DeSelect") ) == 0
+		&&	appStricmp( GetClass()->GetName(), TEXT("UWindowMenuBarItem") ) == 0 )
+		{
+			GAndroidLastFrontendMenuBarItem = this;
+		}
+		if
+		(	appStricmp( GetClass()->GetName(), TEXT("UWindowPulldownMenuItem") ) == 0
+		&&	(	appStricmp( FunctionName, TEXT("LMouseDown") ) == 0
+			||	appStricmp( FunctionName, TEXT("LMouseUp") ) == 0
+			||	appStricmp( FunctionName, TEXT("Select") ) == 0
+			||	appStricmp( FunctionName, TEXT("DeSelect") ) == 0 ) )
+		{
+			GAndroidLastFrontendPulldownItem = this;
+		}
+		static INT AndroidFrontendTraceBudget = 0;
+		static INT AndroidFrontendTraceLogsRemaining = 0;
+		static INT AndroidFrontendTraceBurstsStarted = 0;
+		if
+		(	AndroidFrontendTraceBurstsStarted < 8
+		&&	AndroidFrontendTraceBudget == 0
+		&&	appStricmp( FunctionName, TEXT("LMouseDown") ) == 0
+		&&	appStrstr( GetClass()->GetName(), TEXT("Menu") ) )
+		{
+			AndroidFrontendTraceBudget = 4096;
+			AndroidFrontendTraceLogsRemaining = 96;
+			AndroidFrontendTraceBurstsStarted++;
+		}
+		if( AndroidFrontendTraceBudget > 0 )
+		{
+			AndroidFrontendTraceBudget--;
+			const UBOOL AndroidTraceNoise =
+				appStricmp( GetClass()->GetName(), TEXT("Canvas") ) == 0
+				|| appStrstr( FunctionName, TEXT("Draw") )
+				|| appStrstr( FunctionName, TEXT("Paint") )
+				|| appStricmp( FunctionName, TEXT("SetOrigin") ) == 0
+				|| appStricmp( FunctionName, TEXT("SetClip") ) == 0
+				|| appStricmp( FunctionName, TEXT("SetPos") ) == 0
+				|| appStricmp( FunctionName, TEXT("Tick") ) == 0
+				|| appStricmp( FunctionName, TEXT("DoTick") ) == 0;
+			if( !AndroidTraceNoise && AndroidFrontendTraceLogsRemaining > 0 )
+			{
+				static INT AndroidFrontendTraceCalls = 0;
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V359_FRONTEND_CALL object=%s class=%s function=%s caller=%s native=%i burst=%i count=%i"),
+					GetFullName(),
+					GetClass() ? GetClass()->GetFullName() : TEXT("None"),
 					Function->GetFullName(),
 					Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
-					Scanned,
-					AndroidSkipIterateMapsLogs );
+					Function->iNative,
+					AndroidFrontendTraceBurstsStarted,
+					AndroidFrontendTraceCalls );
+				AndroidFrontendTraceCalls++;
+				AndroidFrontendTraceLogsRemaining--;
 			}
-			AndroidSkipIterateMapsLogs++;
+			if( AndroidFrontendTraceBudget == 0 )
+				AndroidFrontendTraceLogsRemaining = 0;
 		}
-		return;
+		const UBOOL AndroidTraceFrontendAction =
+		(	appStricmp( FunctionName, TEXT("Notify") ) == 0
+		||	appStricmp( FunctionName, TEXT("Click") ) == 0
+		||	appStricmp( FunctionName, TEXT("LMouseDown") ) == 0
+		||	appStricmp( FunctionName, TEXT("LMouseUp") ) == 0
+		||	appStricmp( FunctionName, TEXT("ExecuteItem") ) == 0
+		||	appStricmp( FunctionName, TEXT("ShowWindow") ) == 0
+		||	appStricmp( FunctionName, TEXT("OpenWindow") ) == 0
+		||	appStricmp( FunctionName, TEXT("CreateWindow") ) == 0
+		||	appStricmp( FunctionName, TEXT("ShowModal") ) == 0 );
+		static INT AndroidFrontendActionLogs = 0;
+		if( AndroidTraceFrontendAction && AndroidFrontendActionLogs < 256 )
+		{
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V358_FRONTEND_ACTION object=%s class=%s function=%s caller=%s count=%i"),
+				GetFullName(),
+				GetClass() ? GetClass()->GetFullName() : TEXT("None"),
+				Function->GetFullName(),
+				Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
+				AndroidFrontendActionLogs );
+			AndroidFrontendActionLogs++;
+		}
 	}
 #endif
 	// Found it.
@@ -4009,9 +4341,357 @@ void UObject::CallFunction( FFrame& Stack, RESULT_DECL, UFunction* Function )
 		}
 		Stack.Code++;
 
+#if PLATFORM_ANDROID
+		if
+		(	GAndroidFrontendMenuRequested
+		&&	(	appStricmp( Function->GetName(), TEXT("Select") ) == 0
+			||	appStricmp( Function->GetName(), TEXT("ExecuteItem") ) == 0 )
+		&&	(	appStrstr( GetClass()->GetName(), TEXT("MenuBar") )
+			||	appStrstr( GetClass()->GetName(), TEXT("Menu") ) ) )
+		{
+			for( UProperty* Property=(UProperty*)Function->Children; Property; Property=(UProperty*)Property->Next )
+			{
+				if( !(Property->PropertyFlags & CPF_Parm) || (Property->PropertyFlags & CPF_ReturnParm) )
+					continue;
+				UObjectProperty* ObjectProperty = Cast<UObjectProperty>(Property);
+				if( !ObjectProperty )
+					continue;
+				UObject** Value = (UObject**)(NewStack.Locals + Property->Offset);
+				UObject* RecoveryItem = NULL;
+				const TCHAR* RecoveryKind = TEXT("none");
+				if
+				(	appStrstr( GetClass()->GetName(), TEXT("MenuBar") )
+				&&	GAndroidLastFrontendMenuBarItem
+				&&	IsKnownScriptObjectPointer(GAndroidLastFrontendMenuBarItem)
+				&&	appStricmp( GAndroidLastFrontendMenuBarItem->GetClass()->GetName(), TEXT("UWindowMenuBarItem") ) == 0 )
+				{
+					RecoveryItem = GAndroidLastFrontendMenuBarItem;
+					RecoveryKind = TEXT("menubar");
+				}
+				else if
+				(	GAndroidLastFrontendPulldownItem
+				&&	IsKnownScriptObjectPointer(GAndroidLastFrontendPulldownItem)
+				&&	appStricmp( GAndroidLastFrontendPulldownItem->GetClass()->GetName(), TEXT("UWindowPulldownMenuItem") ) == 0 )
+				{
+					RecoveryItem = GAndroidLastFrontendPulldownItem;
+					RecoveryKind = TEXT("pulldown");
+				}
+				if
+				(	!*Value
+				&&	RecoveryItem )
+				{
+					*Value = RecoveryItem;
+					if
+					(	appStricmp( Function->GetName(), TEXT("Select") ) == 0
+					&&	Function->GetOuter()
+					&&	appStricmp( Function->GetOuter()->GetName(), TEXT("UMenuMenuBar") ) == 0
+					&&	appStricmp( RecoveryKind, TEXT("menubar") ) == 0 )
+					{
+						AndroidRecoveredMenuBarSelectItem = RecoveryItem;
+					}
+					static INT AndroidMenuSelectRecoveries = 0;
+					if( AndroidMenuSelectRecoveries < 32 )
+					{
+						debugf( NAME_Log, TEXT("UT99_ANDROID_V362_RECOVER_MENU_ACTION object=%s function=%s parm=%s kind=%s item=%s count=%i"),
+							GetFullName(),
+							Function->GetFullName(),
+							Property->GetName(),
+							RecoveryKind,
+							RecoveryItem->GetFullName(),
+							AndroidMenuSelectRecoveries );
+					}
+					AndroidMenuSelectRecoveries++;
+				}
+				break;
+			}
+		}
+#endif
+
 		// Execute the code.
+#if PLATFORM_ANDROID
+		if( AndroidRecoveredBotmatchStartTarget )
+		{
+			// This button release is being dispatched explicitly below. Do not
+			// also execute UWindow's normal LMouseUp/Notify path, which would
+			// invoke StartPressed a second time after the first map has loaded.
+			SkipIt = 1;
+		}
+		if
+		(	!SkipIt
+		&&	Result
+		&&	appStricmp( Function->GetName(), TEXT("GetParent") ) == 0
+		&&	Function->GetOuter()
+		&&	appStrstr( Function->GetOuter()->GetName(), TEXT("UWindow") ) )
+		{
+			UClass* RequestedParentClass = NULL;
+			for( UProperty* Property=(UProperty*)Function->Children; Property; Property=(UProperty*)Property->Next )
+			{
+				if
+				(	(Property->PropertyFlags & CPF_Parm)
+				&&	!(Property->PropertyFlags & CPF_ReturnParm)
+				&&	Cast<UObjectProperty>(Property) )
+				{
+					UObject* ParameterValue = *(UObject**)(NewStack.Locals + Property->Offset);
+					if
+					(	ParameterValue
+					&&	IsKnownScriptObjectPointer(ParameterValue)
+					&&	ParameterValue->IsA(UClass::StaticClass()) )
+					{
+						RequestedParentClass = (UClass*)ParameterValue;
+						break;
+					}
+				}
+			}
+			UObject* RecoveredParent = NULL;
+			UObject* ChainObject = this;
+			for( INT ChainIndex=0; RequestedParentClass && ChainIndex<16; ChainIndex++ )
+			{
+				UObjectProperty* ParentProperty = Cast<UObjectProperty>(
+					FindField<UProperty>( ChainObject->GetClass(), TEXT("ParentWindow") ) );
+				if( !ParentProperty )
+					break;
+				UObject* ParentValue = *(UObject**)((BYTE*)ChainObject + ParentProperty->Offset);
+				if( !ParentValue || !IsKnownScriptObjectPointer(ParentValue) )
+					break;
+				if( ParentValue->IsA(RequestedParentClass) )
+				{
+					RecoveredParent = ParentValue;
+					break;
+				}
+				ChainObject = ParentValue;
+			}
+			if( RecoveredParent )
+			{
+				*(UObject**)Result = RecoveredParent;
+				SkipIt = 1;
+				static INT AndroidFrontendGetParentRecoveries = 0;
+				if( AndroidFrontendGetParentRecoveries < 64 )
+				{
+					debugf( NAME_Log, TEXT("UT99_ANDROID_V372_RECOVER_GETPARENT object=%s function=%s requested=%s result=%s count=%i"),
+						GetFullName(),
+						Function->GetFullName(),
+						RequestedParentClass->GetFullName(),
+						RecoveredParent->GetFullName(),
+						AndroidFrontendGetParentRecoveries );
+				}
+				AndroidFrontendGetParentRecoveries++;
+			}
+		}
+		if
+		(	!SkipIt
+		&&	appStricmp( Function->GetName(), TEXT("StartPressed") ) == 0
+		&&	appStricmp( GetClass()->GetName(), TEXT("UTMenuBotmatchCW") ) == 0 )
+		{
+			UStrProperty* MapProperty = Cast<UStrProperty>(
+				FindField<UProperty>( GetClass(), TEXT("Map") ) );
+			UStrProperty* GameTypeProperty = Cast<UStrProperty>(
+				FindField<UProperty>( GetClass(), TEXT("GameType") ) );
+			UStrProperty* MutatorProperty = Cast<UStrProperty>(
+				FindField<UProperty>( GetClass(), TEXT("MutatorList") ) );
+			const FString Map = MapProperty
+				? *(FString*)((BYTE*)this + MapProperty->Offset)
+				: FString(TEXT(""));
+			FString GameType = GameTypeProperty
+				? *(FString*)((BYTE*)this + GameTypeProperty->Offset)
+				: FString(TEXT(""));
+			const FString MutatorList = MutatorProperty
+				? *(FString*)((BYTE*)this + MutatorProperty->Offset)
+				: FString(TEXT(""));
+			if( GameType.Len() == 0 )
+				GameType = TEXT("Botpack.DeathMatchPlus");
+
+			UObject* RootWindow = NULL;
+			UObject* Console = NULL;
+			UObject* Viewport = NULL;
+			UObject* PlayerActor = NULL;
+			UObjectProperty* RootProperty = Cast<UObjectProperty>(
+				FindField<UProperty>( GetClass(), TEXT("Root") ) );
+			if( RootProperty )
+				RootWindow = *(UObject**)((BYTE*)this + RootProperty->Offset);
+			if( RootWindow && IsKnownScriptObjectPointer(RootWindow) )
+			{
+				UObjectProperty* ConsoleProperty = Cast<UObjectProperty>(
+					FindField<UProperty>( RootWindow->GetClass(), TEXT("Console") ) );
+				if( ConsoleProperty )
+					Console = *(UObject**)((BYTE*)RootWindow + ConsoleProperty->Offset);
+			}
+			if( Console && IsKnownScriptObjectPointer(Console) )
+			{
+				UObjectProperty* ViewportProperty = Cast<UObjectProperty>(
+					FindField<UProperty>( Console->GetClass(), TEXT("Viewport") ) );
+				if( ViewportProperty )
+					Viewport = *(UObject**)((BYTE*)Console + ViewportProperty->Offset);
+			}
+			if( Viewport && IsKnownScriptObjectPointer(Viewport) )
+			{
+				UObjectProperty* ActorProperty = Cast<UObjectProperty>(
+					FindField<UProperty>( Viewport->GetClass(), TEXT("Actor") ) );
+				if( ActorProperty )
+					PlayerActor = *(UObject**)((BYTE*)Viewport + ActorProperty->Offset);
+			}
+
+			FString TravelURL;
+			if( Map.Len() > 0 )
+			{
+				TravelURL = Map;
+				TravelURL += TEXT("?Game=");
+				TravelURL += GameType;
+				TravelURL += TEXT("?Mutator=");
+				TravelURL += MutatorList;
+				static FString AndroidLastBotmatchTravelURL;
+				static DOUBLE AndroidLastBotmatchTravelTime = -1000.0;
+				const DOUBLE AndroidTravelNow = appSeconds();
+				const UBOOL AndroidDuplicateTravel =
+					AndroidLastBotmatchTravelURL == TravelURL
+					&& AndroidTravelNow - AndroidLastBotmatchTravelTime < 3.0;
+				UFunction* ClientTravelFunction =
+					PlayerActor && IsKnownScriptObjectPointer(PlayerActor)
+					? PlayerActor->FindFunction( FName(TEXT("ClientTravel"), FNAME_Find) )
+					: NULL;
+				if( ClientTravelFunction && !AndroidDuplicateTravel )
+				{
+					AndroidLastBotmatchTravelURL = TravelURL;
+					AndroidLastBotmatchTravelTime = AndroidTravelNow;
+					UFunction* CloseUWindowFunction =
+						Console && IsKnownScriptObjectPointer(Console)
+						? Console->FindFunction( FName(TEXT("CloseUWindow"), FNAME_Find) )
+						: NULL;
+					if( CloseUWindowFunction && CloseUWindowFunction->ParmsSize == 0 )
+						Console->ProcessEvent( CloseUWindowFunction, NULL );
+					if( PlayerActor )
+					{
+						UBoolProperty* ShowMenuProperty = Cast<UBoolProperty>(
+							FindField<UProperty>( PlayerActor->GetClass(), TEXT("bShowMenu") ) );
+						if( ShowMenuProperty )
+							*(BITFIELD*)((BYTE*)PlayerActor + ShowMenuProperty->Offset) &= ~ShowMenuProperty->BitMask;
+					}
+					GAndroidFrontendMenuRequested = 0;
+					debugf( NAME_Log, TEXT("UT99_ANDROID_V378_BOTMATCH_LEAVE_FRONTEND console=%s close=%i actor=%s frontend=%i"),
+						Console ? Console->GetFullName() : TEXT("None"),
+						CloseUWindowFunction ? 1 : 0,
+						PlayerActor ? PlayerActor->GetFullName() : TEXT("None"),
+						GAndroidFrontendMenuRequested );
+
+					BYTE* TravelParms = (BYTE*)appAlloca(ClientTravelFunction->PropertiesSize);
+					appMemzero( TravelParms, ClientTravelFunction->PropertiesSize );
+					for( UProperty* Property=(UProperty*)ClientTravelFunction->Children; Property; Property=(UProperty*)Property->Next )
+					{
+						if( !(Property->PropertyFlags & CPF_Parm) || (Property->PropertyFlags & CPF_ReturnParm) )
+							continue;
+						if( appStricmp( Property->GetName(), TEXT("URL") ) == 0 && Cast<UStrProperty>(Property) )
+							*(FString*)(TravelParms + Property->Offset) = TravelURL;
+						else if( appStricmp( Property->GetName(), TEXT("TravelType") ) == 0 )
+							*(BYTE*)(TravelParms + Property->Offset) = 0;
+						else if( appStricmp( Property->GetName(), TEXT("bItems") ) == 0 )
+						{
+							UBoolProperty* BoolProperty = Cast<UBoolProperty>(Property);
+							if( BoolProperty )
+								*(BITFIELD*)(TravelParms + Property->Offset) &= ~BoolProperty->BitMask;
+						}
+					}
+					PlayerActor->ProcessEvent( ClientTravelFunction, TravelParms );
+					for( UProperty* Destruct=ClientTravelFunction->ConstructorLink; Destruct; Destruct=Destruct->ConstructorLinkNext )
+						Destruct->DestroyValue( TravelParms + Destruct->Offset );
+					SkipIt = 1;
+				}
+				else if( AndroidDuplicateTravel )
+				{
+					SkipIt = 1;
+					debugf( NAME_Warning, TEXT("UT99_ANDROID_V379_SKIP_DUPLICATE_BOTMATCH_TRAVEL url=%s elapsed=%f actor=%s"),
+						*TravelURL,
+						AndroidTravelNow - AndroidLastBotmatchTravelTime,
+						PlayerActor ? PlayerActor->GetFullName() : TEXT("None") );
+				}
+			}
+
+			static INT AndroidBotmatchTravelLogs = 0;
+			if( AndroidBotmatchTravelLogs < 32 )
+			{
+				debugf( NAME_Log, TEXT("UT99_ANDROID_V375_BOTMATCH_TRAVEL object=%s map=%s game=%s mutators=%s url=%s root=%s console=%s viewport=%s actor=%s dispatched=%i count=%i"),
+					GetFullName(),
+					*Map,
+					*GameType,
+					*MutatorList,
+					*TravelURL,
+					RootWindow && IsKnownScriptObjectPointer(RootWindow) ? RootWindow->GetFullName() : TEXT("None"),
+					Console && IsKnownScriptObjectPointer(Console) ? Console->GetFullName() : TEXT("None"),
+					Viewport && IsKnownScriptObjectPointer(Viewport) ? Viewport->GetFullName() : TEXT("None"),
+					PlayerActor && IsKnownScriptObjectPointer(PlayerActor) ? PlayerActor->GetFullName() : TEXT("None"),
+					SkipIt,
+					AndroidBotmatchTravelLogs );
+			}
+			AndroidBotmatchTravelLogs++;
+		}
+#endif
 		if( !SkipIt )
 			ProcessInternal( NewStack, Result );
+
+#if PLATFORM_ANDROID
+		if
+		(	AndroidRecoveredMenuBarSelectItem
+		&&	IsKnownScriptObjectPointer(AndroidRecoveredMenuBarSelectItem) )
+		{
+			UObject* PulldownMenu = NULL;
+			UObjectProperty* MenuProperty = Cast<UObjectProperty>(
+				FindField<UProperty>( AndroidRecoveredMenuBarSelectItem->GetClass(), TEXT("Menu") ) );
+			if( MenuProperty )
+				PulldownMenu = *(UObject**)((BYTE*)AndroidRecoveredMenuBarSelectItem + MenuProperty->Offset);
+			if( PulldownMenu && IsKnownScriptObjectPointer(PulldownMenu) )
+			{
+				UFunction* ShowWindow = PulldownMenu->FindFunction( FName(TEXT("ShowWindow"), FNAME_Find) );
+				if( ShowWindow && ShowWindow->ParmsSize == 0 )
+				{
+					PulldownMenu->ProcessEvent( ShowWindow, NULL );
+					static INT AndroidMenuShowFallbacks = 0;
+					if( AndroidMenuShowFallbacks < 32 )
+					{
+						debugf( NAME_Log, TEXT("UT99_ANDROID_V364_SHOW_EXISTING_PULLDOWN item=%s menu=%s function=%s count=%i"),
+							AndroidRecoveredMenuBarSelectItem->GetFullName(),
+							PulldownMenu->GetFullName(),
+							ShowWindow->GetFullName(),
+							AndroidMenuShowFallbacks );
+					}
+					AndroidMenuShowFallbacks++;
+				}
+			}
+			else
+			{
+				static INT AndroidMissingMenuLogs = 0;
+				if( AndroidMissingMenuLogs < 32 )
+				{
+					debugf( NAME_Warning, TEXT("UT99_ANDROID_V364_MISSING_PULLDOWN item=%s menuProp=%p offset=%i menu=%p known=%i count=%i"),
+						AndroidRecoveredMenuBarSelectItem->GetFullName(),
+						MenuProperty,
+						MenuProperty ? MenuProperty->Offset : -1,
+						PulldownMenu,
+						PulldownMenu ? IsKnownScriptObjectPointer(PulldownMenu) : 1,
+						AndroidMissingMenuLogs );
+				}
+				AndroidMissingMenuLogs++;
+			}
+		}
+		if
+		(	AndroidRecoveredBotmatchStartTarget
+		&&	IsKnownScriptObjectPointer(AndroidRecoveredBotmatchStartTarget) )
+		{
+			UFunction* StartPressedFunction = AndroidRecoveredBotmatchStartTarget->FindFunction(
+				FName(TEXT("StartPressed"), FNAME_Find) );
+			if( StartPressedFunction && StartPressedFunction->ParmsSize == 0 )
+			{
+				AndroidRecoveredBotmatchStartTarget->ProcessEvent( StartPressedFunction, NULL );
+				static INT AndroidBotmatchStartDispatchLogs = 0;
+				if( AndroidBotmatchStartDispatchLogs < 32 )
+				{
+					debugf( NAME_Log, TEXT("UT99_ANDROID_V376_BOTMATCH_START_DISPATCH button=%s target=%s function=%s count=%i"),
+						GetFullName(),
+						AndroidRecoveredBotmatchStartTarget->GetFullName(),
+						StartPressedFunction->GetFullName(),
+						AndroidBotmatchStartDispatchLogs );
+				}
+				AndroidBotmatchStartDispatchLogs++;
+			}
+		}
+#endif
 
 		// Copy back outparms.
 		while( --Out >= Outs )
@@ -4045,27 +4725,6 @@ void UObject::CallFunction( FFrame& Stack, RESULT_DECL, UFunction* Function )
 		}
 	}
 #endif
-#if PLATFORM_ANDROID
-	if( AndroidFrontendCallStart )
-	{
-		static INT AndroidFrontendSlowCallLogs = 0;
-		const DOUBLE AndroidFrontendCallMs = (appSeconds() - AndroidFrontendCallStart) * 1000.0;
-		if( AndroidFrontendCallMs >= 25.0 && AndroidFrontendSlowCallLogs < 256 )
-		{
-			debugf( NAME_Log, TEXT("UT99_ANDROID_V348_FRONTEND_SLOW_CALL ms=%f object=%s function=%s caller=%s native=%i flags=0x%08x parms=%i props=%i count=%i"),
-				AndroidFrontendCallMs,
-				GetFullName(),
-				Function ? Function->GetFullName() : TEXT("None"),
-				Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
-				Function ? Function->iNative : 0,
-				Function ? Function->FunctionFlags : 0,
-				Function ? Function->ParmsSize : 0,
-				Function ? Function->PropertiesSize : 0,
-				AndroidFrontendSlowCallLogs );
-			AndroidFrontendSlowCallLogs++;
-		}
-	}
-#endif
 	unguardSlow;
 }
 
@@ -4076,16 +4735,6 @@ void UObject::CallFunction( FFrame& Stack, RESULT_DECL, UFunction* Function )
 void UObject::ProcessInternal( FFrame& Stack, RESULT_DECL )
 {
 	guardSlow(UObject::ProcessInternal);
-#if PLATFORM_ANDROID
-	extern INT GAndroidInFrontendConsolePostRender;
-	const UBOOL AndroidTraceFrontendProcess =
-	(	GAndroidInFrontendConsolePostRender
-	&&	Stack.Node
-	&&	appStrstr( Stack.Node->GetFullName(), TEXT("WindowConsole.UWindow.PostRender") ) );
-	const DOUBLE AndroidFrontendProcessStart = AndroidTraceFrontendProcess ? appSeconds() : 0.0;
-	INT AndroidFrontendProcessSteps = 0;
-	BYTE AndroidFrontendLastOpcode = 0;
-#endif
 	DWORD SingularFlag = ((UFunction*)Stack.Node)->FunctionFlags & FUNC_Singular;
 	if
 	(	!ProcessRemoteFunction( (UFunction*)Stack.Node, Stack.Locals, NULL )
@@ -4100,45 +4749,9 @@ void UObject::ProcessInternal( FFrame& Stack, RESULT_DECL )
 			Stack.Logf( NAME_Critical, TEXT("Infinite script recursion (%i calls) detected"), RECURSE_LIMIT );
 #endif
 		while( *Stack.Code != EX_Return )
-		{
-#if PLATFORM_ANDROID
-			if( AndroidTraceFrontendProcess )
-			{
-				AndroidFrontendLastOpcode = *Stack.Code;
-				AndroidFrontendProcessSteps++;
-				if( AndroidFrontendProcessSteps == 8192 || AndroidFrontendProcessSteps == 32768 || AndroidFrontendProcessSteps == 131072 )
-				{
-					debugf( NAME_Log, TEXT("UT99_ANDROID_V350_FRONTEND_POST_VM_PROGRESS object=%s node=%s steps=%i opcode=0x%02x elapsedMs=%f"),
-						GetFullName(),
-						Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
-						AndroidFrontendProcessSteps,
-						AndroidFrontendLastOpcode,
-						(appSeconds() - AndroidFrontendProcessStart) * 1000.0 );
-				}
-			}
-#endif
 			Stack.Step( Stack.Object, Buffer );
-		}
 		Stack.Code++;
 		Stack.Step( Stack.Object, Result );
-#if PLATFORM_ANDROID
-		if( AndroidTraceFrontendProcess )
-		{
-			static INT AndroidFrontendProcessLogs = 0;
-			const DOUBLE AndroidFrontendProcessMs = (appSeconds() - AndroidFrontendProcessStart) * 1000.0;
-			if( (AndroidFrontendProcessMs >= 25.0 || AndroidFrontendProcessSteps >= 8192) && AndroidFrontendProcessLogs < 128 )
-			{
-				debugf( NAME_Log, TEXT("UT99_ANDROID_V350_FRONTEND_POST_VM_DONE object=%s node=%s steps=%i lastOpcode=0x%02x ms=%f count=%i"),
-					GetFullName(),
-					Stack.Node ? Stack.Node->GetFullName() : TEXT("None"),
-					AndroidFrontendProcessSteps,
-					AndroidFrontendLastOpcode,
-					AndroidFrontendProcessMs,
-					AndroidFrontendProcessLogs );
-				AndroidFrontendProcessLogs++;
-			}
-		}
-#endif
 		ObjectFlags &= ~SingularFlag;
 #if DO_GUARD
 		--Recurse;
@@ -4153,10 +4766,6 @@ void UObject::ProcessInternal( FFrame& Stack, RESULT_DECL )
 void UObject::ProcessEvent( UFunction* Function, void* Parms, void* UnusedResult )
 {
 	guard(UObject::ProcessEvent);
-#if PLATFORM_ANDROID
-	extern INT GAndroidInFrontendConsolePostRender;
-	const DOUBLE AndroidFrontendEventStart = GAndroidInFrontendConsolePostRender ? appSeconds() : 0.0;
-#endif
 #if defined(__ANDROID__) && defined(UT99_ANDROID_SCRIPT_TIMING_TRACE)
 	const DOUBLE AndroidEventStart = appSeconds();
 #endif
@@ -4211,26 +4820,6 @@ void UObject::ProcessEvent( UFunction* Function, void* Parms, void* UnusedResult
 				Function ? Function->FunctionFlags : 0,
 				Function ? Function->ParmsSize : 0,
 				Function ? Function->PropertiesSize : 0 );
-		}
-	}
-#endif
-#if PLATFORM_ANDROID
-	if( AndroidFrontendEventStart )
-	{
-		static INT AndroidFrontendSlowEventLogs = 0;
-		const DOUBLE AndroidFrontendEventMs = (appSeconds() - AndroidFrontendEventStart) * 1000.0;
-		if( AndroidFrontendEventMs >= 25.0 && AndroidFrontendSlowEventLogs < 256 )
-		{
-			debugf( NAME_Log, TEXT("UT99_ANDROID_V348_FRONTEND_SLOW_EVENT ms=%f object=%s function=%s native=%i flags=0x%08x parms=%i props=%i count=%i"),
-				AndroidFrontendEventMs,
-				GetFullName(),
-				Function ? Function->GetFullName() : TEXT("None"),
-				Function ? Function->iNative : 0,
-				Function ? Function->FunctionFlags : 0,
-				Function ? Function->ParmsSize : 0,
-				Function ? Function->PropertiesSize : 0,
-				AndroidFrontendSlowEventLogs );
-			AndroidFrontendSlowEventLogs++;
 		}
 	}
 #endif

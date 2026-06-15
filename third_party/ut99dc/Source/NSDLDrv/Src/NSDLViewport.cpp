@@ -14,27 +14,13 @@ INT GAndroidSDLDrawableX = 0;
 INT GAndroidSDLDrawableY = 0;
 extern UBOOL GAndroidFrontendMenuRequested;
 
-#ifndef UT99_ANDROID_MAX_RENDER_WIDTH
-#define UT99_ANDROID_MAX_RENDER_WIDTH 640
-#endif
-
-#ifndef UT99_ANDROID_MAX_RENDER_HEIGHT
-#define UT99_ANDROID_MAX_RENDER_HEIGHT 384
-#endif
-
 static void AndroidChooseInternalRenderSize( INT OutputX, INT OutputY, INT& RenderX, INT& RenderY )
 {
 	if( OutputX <= 0 || OutputY <= 0 )
 		return;
 
-	FLOAT Scale = 1.0f;
-	if( OutputX > UT99_ANDROID_MAX_RENDER_WIDTH )
-		Scale = Min( Scale, (FLOAT)UT99_ANDROID_MAX_RENDER_WIDTH / (FLOAT)OutputX );
-	if( OutputY > UT99_ANDROID_MAX_RENDER_HEIGHT )
-		Scale = Min( Scale, (FLOAT)UT99_ANDROID_MAX_RENDER_HEIGHT / (FLOAT)OutputY );
-
-	RenderX = Max<INT>( 320, appRound( OutputX * Scale ) );
-	RenderY = Max<INT>( 200, appRound( OutputY * Scale ) );
+	RenderX = OutputX;
+	RenderY = OutputY;
 }
 
 static void AndroidScaleMouseToViewport( INT SizeX, INT SizeY, FLOAT& X, FLOAT& Y )
@@ -778,7 +764,7 @@ void UNSDLViewport::OpenWindow( DWORD InParentWindow, UBOOL Temporary, INT NewX,
 			GAndroidSDLDrawableX = OutputX;
 			GAndroidSDLDrawableY = OutputY;
 			AndroidChooseInternalRenderSize( OutputX, OutputY, NewX, NewY );
-			debugf( NAME_Log, TEXT("UT99_ANDROID_V242_INTERNAL_RENDER_SIZE output=%ix%i internal=%ix%i"), OutputX, OutputY, NewX, NewY );
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V374_NATIVE_RENDER_SIZE output=%ix%i internal=%ix%i"), OutputX, OutputY, NewX, NewY );
 #else
 			NewX = OutputX;
 			NewY = OutputY;
@@ -928,7 +914,7 @@ UBOOL UNSDLViewport::Lock( FPlane FlashScale, FPlane FlashFog, FPlane ScreenClea
 		AndroidChooseInternalRenderSize( OutputX, OutputY, TargetX, TargetY );
 		if( TargetX != SizeX || TargetY != SizeY )
 		{
-			debugf( NAME_Log, TEXT("UT99_ANDROID_V242_INTERNAL_RENDER_RESYNC old=%ix%i output=%ix%i internal=%ix%i"), SizeX, SizeY, OutputX, OutputY, TargetX, TargetY );
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V374_NATIVE_RENDER_RESYNC old=%ix%i output=%ix%i internal=%ix%i"), SizeX, SizeY, OutputX, OutputY, TargetX, TargetY );
 			SizeX = TargetX;
 			SizeY = TargetY;
 			if( RenDev )
@@ -1411,17 +1397,8 @@ UBOOL UNSDLViewport::TickInput()
 				FLOAT MouseY = Ev.button.y;
 #if PLATFORM_ANDROID
 				AndroidScaleMouseToViewport( SizeX, SizeY, MouseX, MouseY );
-				if( Client && Client->Engine )
+				if( GAndroidFrontendMenuRequested && Client && Client->Engine )
 				{
-					if( Ev.type == SDL_MOUSEBUTTONDOWN && !GAndroidFrontendMenuRequested )
-					{
-						GAndroidFrontendMenuRequested = 1;
-						debugf( NAME_Log, TEXT("UT99_ANDROID_V329_FRONTEND_MOUSE_REQUEST x=%f y=%f actor=%s console=%s"),
-							MouseX,
-							MouseY,
-							Actor ? Actor->GetFullName() : TEXT("None"),
-							Console ? Console->GetFullName() : TEXT("None") );
-					}
 					bWindowsMouseAvailable = 1;
 					bShowWindowsMouse = 1;
 					if( Actor )
@@ -1472,6 +1449,24 @@ UBOOL UNSDLViewport::TickInput()
 							AndroidMouseButtonLogs );
 					}
 					AndroidMouseButtonLogs++;
+				}
+				else if( !GAndroidFrontendMenuRequested )
+				{
+					bShowWindowsMouse = 0;
+					if( Actor )
+						Actor->bShowMenu = 0;
+					static INT AndroidGameplayMouseLogs = 0;
+					if( AndroidGameplayMouseLogs < 32 )
+					{
+						debugf( NAME_Log, TEXT("UT99_ANDROID_V380_GAMEPLAY_MOUSE_INPUT type=%i button=%i key=%i actor=%s level=%s count=%i"),
+							Ev.type,
+							Ev.button.button,
+							MouseButtonMap[Ev.button.button],
+							Actor ? Actor->GetFullName() : TEXT("None"),
+							(Actor && Actor->GetLevel() && Actor->GetLevel()->GetOuter()) ? Actor->GetLevel()->GetOuter()->GetName() : TEXT("None"),
+							AndroidGameplayMouseLogs );
+					}
+					AndroidGameplayMouseLogs++;
 				}
 #endif
 				CauseInputEvent( MouseButtonMap[Ev.button.button], ( Ev.type == SDL_MOUSEBUTTONDOWN ) ? IST_Press : IST_Release );

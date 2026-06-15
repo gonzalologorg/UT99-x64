@@ -18,7 +18,6 @@
 #define UT99_ANDROID_SHOW_FPS_COUNTER 0
 #endif
 UBOOL GAndroidFrontendMenuRequested = 0;
-INT GAndroidInFrontendConsolePostRender = 0;
 INT GAndroidInterpPositionScriptOffset = INDEX_NONE;
 INT GAndroidInterpRateScriptOffset = INDEX_NONE;
 INT GAndroidInterpGameSpeedScriptOffset = INDEX_NONE;
@@ -2996,15 +2995,7 @@ void UGameEngine::Draw( UViewport* Viewport, UBOOL Blit, BYTE* HitData, INT* Hit
 			Viewport->Console->PostRender( Frame );
 			AndroidConsoleNativePostMs = (appSeconds() - AndroidConsoleNativeStart) * 1000.0;
 			DOUBLE AndroidConsoleEventStart = appSeconds();
-#if defined(__ANDROID__)
-			if( GAndroidFrontendMenuRequested )
-				GAndroidInFrontendConsolePostRender++;
-#endif
 			Viewport->Console->eventPostRender( Viewport->Canvas );
-#if defined(__ANDROID__)
-			if( GAndroidFrontendMenuRequested && GAndroidInFrontendConsolePostRender > 0 )
-				GAndroidInFrontendConsolePostRender--;
-#endif
 			AndroidConsoleEventPostMs = (appSeconds() - AndroidConsoleEventStart) * 1000.0;
 #if defined(__ANDROID__)
 			if( GAndroidFrontendMenuRequested )
@@ -3474,6 +3465,20 @@ void UGameEngine::Tick( FLOAT DeltaSeconds )
 	{
 		// Travel to new level, and exit.
 		UViewport* Viewport = Client->Viewports( 0 );
+#if PLATFORM_ANDROID
+		if
+		(	GAndroidFrontendMenuRequested
+		&&	appStricmp(*Viewport->TravelURL,TEXT("?entry")) != 0
+		&&	appStricmp(*Viewport->TravelURL,TEXT("?failed")) != 0 )
+		{
+			GAndroidFrontendMenuRequested = 0;
+			if( Viewport->Actor )
+				Viewport->Actor->bShowMenu = 0;
+			debugf( NAME_Log, TEXT("UT99_ANDROID_V378_CLIENT_TRAVEL_CLEAR_FRONTEND url=%s actor=%s"),
+				*Viewport->TravelURL,
+				Viewport->Actor ? Viewport->Actor->GetFullName() : TEXT("None") );
+		}
+#endif
 #if defined(PLATFORM_64BIT)
 		if( appStricmp(*Viewport->TravelURL,TEXT("?entry"))==0 || appStricmp(*Viewport->TravelURL,TEXT("?failed"))==0 )
 		{
